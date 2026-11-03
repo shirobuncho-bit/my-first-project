@@ -151,67 +151,225 @@ document.querySelectorAll('#touch button').forEach(b => {
 });
 cv.addEventListener('pointerdown', () => { initAudio(); pressed.start = true; });
 
-// ---------- サウンド (WebAudio) ----------
+// ---------- サウンド (WebAudio: 小さなシンセ + リバーブ + ディレイ) ----------
 let AC = null, muted = false;
+let master, musicBus, sfxBus, revSend, dlySend, noiseBuf;
 function initAudio() {
-  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } }
-  if (AC && AC.state === 'suspended') AC.resume();
+  if (!AC) {
+    try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    const comp = AC.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.005; comp.release.value = 0.2;
+    master = AC.createGain(); master.gain.value = 0.9;
+    master.connect(comp); comp.connect(AC.destination);
+    // リバーブ (ノイズから作ったインパルス応答)
+    const rev = AC.createConvolver();
+    const len = Math.floor(AC.sampleRate * 2.4), ib = AC.createBuffer(2, len, AC.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = ib.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+    rev.buffer = ib;
+    const revOut = AC.createGain(); revOut.gain.value = 0.32;
+    revSend = AC.createGain(); revSend.connect(rev); rev.connect(revOut); revOut.connect(master);
+    // ピンポン風ディレイ
+    const dl = AC.createDelay(1); dl.delayTime.value = 0.33;
+    const fb = AC.createGain(); fb.gain.value = 0.32;
+    const dlf = AC.createBiquadFilter(); dlf.type = 'lowpass'; dlf.frequency.value = 2600;
+    const dlOut = AC.createGain(); dlOut.gain.value = 0.28;
+    dlySend = AC.createGain(); dlySend.connect(dl); dl.connect(dlf); dlf.connect(fb); fb.connect(dl); dlf.connect(dlOut); dlOut.connect(master);
+    musicBus = AC.createGain(); musicBus.gain.value = 0.75; musicBus.connect(master);
+    sfxBus = AC.createGain(); sfxBus.gain.value = 1; sfxBus.connect(master);
+    noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
+    const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  }
+  if (AC.state === 'suspended') AC.resume();
 }
-function tone(f, d, type = 'square', v = 0.06, f2 = null, delay = 0) {
+function setMuted(m) { muted = m; if (master) master.gain.setTargetAtTime(m ? 0 : 0.9, AC.currentTime, 0.02); if (m) chargeStop(); }
+function sends(node, rev, dly) {
+  if (rev) { const g = AC.createGain(); g.gain.value = rev; node.connect(g); g.connect(revSend); }
+  if (dly) { const g = AC.createGain(); g.gain.value = dly; node.connect(g); g.connect(dlySend); }
+}
+// 1 音: 波形・エンベロープ・フィルター・デチューンした重ね・ビブラート
+function voice(o) {
   if (!AC || muted) return;
-  const t = AC.currentTime + delay;
-  const o = AC.createOscillator(), g = AC.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(f, t);
-  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
-  g.gain.setValueAtTime(v, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-  o.connect(g).connect(AC.destination);
-  o.start(t); o.stop(t + d + 0.03);
+  const { f, t = 0, d = 0.15, type = 'square', v = 0.05, f2 = null, a = 0.004, r = 0.12, cut = 0, cut2 = 0, q = 1,
+          det = 0, n = 1, rev = 0, dly = 0, bus = sfxBus, vib = 0, vibF = 6 } = o;
+  const t0 = AC.currentTime + Math.max(0, t), end = t0 + d + r;
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(v, t0 + a);
+  g.gain.setValueAtTime(v, t0 + Math.max(a, d));
+  g.gain.exponentialRampToValueAtTime(0.0001, end);
+  let out = g;
+  if (cut) {
+    const fl = AC.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = q;
+    fl.frequency.setValueAtTime(cut, t0);
+    if (cut2) fl.frequency.exponentialRampToValueAtTime(cut2, t0 + d + r * 0.5);
+    g.connect(fl); out = fl;
+  }
+  let lfo = null;
+  if (vib) { lfo = AC.createOscillator(); lfo.frequency.value = vibF; const lg = AC.createGain(); lg.gain.value = vib; lfo.connect(lg); lfo.start(t0); lfo.stop(end + 0.05); lfo._g = lg; }
+  for (let i = 0; i < n; i++) {
+    const os = AC.createOscillator(); os.type = type;
+    os.frequency.setValueAtTime(f, t0);
+    if (f2) os.frequency.exponentialRampToValueAtTime(f2, t0 + d);
+    if (n > 1) os.detune.value = (i - (n - 1) / 2) * det;
+    if (lfo) lfo._g.connect(os.frequency);
+    os.connect(g); os.start(t0); os.stop(end + 0.05);
+  }
+  out.connect(bus); sends(out, rev, dly);
 }
-const sfx = {
-  jump: () => tone(300, 0.18, 'square', 0.05, 640),
-  drop: () => { tone(1175, 0.06, 'sine', 0.08); tone(1568, 0.25, 'sine', 0.07, null, 0.06); },
-  stomp: () => tone(520, 0.14, 'triangle', 0.12, 140),
-  kick: () => tone(700, 0.12, 'square', 0.06, 260),
-  bump: () => tone(150, 0.09, 'square', 0.07, 90),
-  puff: () => { tone(500, 0.18, 'sine', 0.08, 180); tone(900, 0.12, 'triangle', 0.04, 400, 0.02); },
-  appear: () => tone(400, 0.45, 'triangle', 0.09, 1000),
-  power: () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.12, 'square', 0.05, null, i * 0.06)),
-  oneup: () => [659, 784, 1319, 1047, 1175, 1568].forEach((f, i) => tone(f, 0.1, 'square', 0.05, null, i * 0.08)),
-  die: () => [494, 466, 440, 392, 330, 262].forEach((f, i) => tone(f, 0.2, 'triangle', 0.12, null, i * 0.14)),
-  sunrise: () => [392, 523, 659, 784, 0, 659, 784, 1047, 1319].forEach((f, i) => f && tone(f, 0.3, 'triangle', 0.09, null, i * 0.16)),
-  tick: () => tone(1400, 0.03, 'square', 0.025),
-  check: () => [784, 988, 1175].forEach((f, i) => tone(f, 0.12, 'triangle', 0.08, null, i * 0.08)),
-  hurt: () => { for (let i = 0; i < 6; i++) tone(1500 - i * 150, 0.08, 'sine', 0.06, null, i * 0.04); },
-  spring: () => tone(260, 0.35, 'sine', 0.12, 1100),
-  dash: () => tone(500, 0.3, 'sawtooth', 0.04, 1500),
-  whoosh: () => tone(300, 0.6, 'triangle', 0.06, 900),
-  charge: c => tone(220 + c * 700, 0.07, 'square', 0.03),
-  superdash: c => { tone(260, 0.5, 'sawtooth', 0.06, 1600 + c * 600); tone(130, 0.35, 'square', 0.05, 520, 0.02); },
-  go: () => tone(1046, 0.4, 'square', 0.06),
-  ready: () => tone(523, 0.15, 'square', 0.05),
-  record: () => [784, 988, 1175, 1568, 1319, 1568].forEach((f, i) => tone(f, 0.14, 'square', 0.05, null, i * 0.1)),
-  zone: () => [523, 784, 1047].forEach((f, i) => tone(f, 0.4, 'sine', 0.07, null, i * 0.12)),
-};
-// BGM: オリジナルの短いループ (夜明けが近づくほどテンポが上がる)
-const MEL = [72, 0, 76, 79, 77, 76, 74, 0, 72, 74, 76, 72, 69, 0, 67, 0,
-             69, 72, 74, 0, 76, 74, 72, 74, 76, 79, 81, 79, 77, 74, 72, 0];
-const BAS = [48, 55, 52, 55, 53, 60, 57, 60, 50, 57, 53, 57, 55, 62, 59, 55];
+// ノイズ (打楽器・風・ほこり)
+function noise(o) {
+  if (!AC || muted) return;
+  const { t = 0, d = 0.08, v = 0.1, type = 'bandpass', f = 1200, f2 = 0, q = 1, a = 0.002, rev = 0, dly = 0, bus = sfxBus } = o;
+  const t0 = AC.currentTime + Math.max(0, t);
+  const src = AC.createBufferSource(); src.buffer = noiseBuf;
+  const fl = AC.createBiquadFilter(); fl.type = type; fl.Q.value = q;
+  fl.frequency.setValueAtTime(f, t0); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t0 + d);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(v, t0 + a); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+  src.connect(fl); fl.connect(g); g.connect(bus); sends(g, rev, dly);
+  src.start(t0, Math.random() * 0.5); src.stop(t0 + d + 0.05);
+}
 const midi = m => 440 * Math.pow(2, (m - 69) / 12);
+const bell = (m, t = 0, v = 0.05, d = 0.5, rev = 0.4) => {
+  voice({ f: midi(m), t, d: 0.02, r: d, type: 'sine', v, rev, dly: 0.15 });
+  voice({ f: midi(m) * 3.01, t, d: 0.01, r: d * 0.4, type: 'sine', v: v * 0.35, rev });
+  voice({ f: midi(m + 12), t, d: 0.01, r: d * 0.6, type: 'triangle', v: v * 0.3, rev });
+};
+const sfx = {
+  jump: () => { voice({ f: 330, f2: 760, d: 0.12, r: 0.06, type: 'square', v: 0.035, cut: 2800 }); voice({ f: 660, f2: 1200, d: 0.08, r: 0.05, type: 'sine', v: 0.03 }); },
+  drop: () => { bell(88, 0, 0.045, 0.35); bell(95, 0.055, 0.04, 0.45); },
+  stomp: () => { voice({ f: 180, f2: 50, d: 0.12, r: 0.05, type: 'sine', v: 0.22 }); noise({ d: 0.07, v: 0.12, f: 1800, q: 0.8 }); voice({ f: 700, f2: 1400, t: 0.04, d: 0.06, r: 0.05, type: 'square', v: 0.03 }); },
+  kick: () => { voice({ f: 900, f2: 200, d: 0.18, r: 0.06, type: 'square', v: 0.04, cut: 3000 }); noise({ d: 0.05, v: 0.08, f: 3000 }); },
+  bump: () => { voice({ f: 160, f2: 90, d: 0.08, r: 0.05, type: 'square', v: 0.07, cut: 900 }); noise({ d: 0.05, v: 0.08, f: 500, q: 0.7 }); },
+  puff: () => { noise({ d: 0.3, v: 0.16, type: 'lowpass', f: 2200, f2: 300, rev: 0.3 }); bell(84, 0.02, 0.03, 0.3); },
+  appear: () => { voice({ f: 300, f2: 1200, d: 0.45, r: 0.2, type: 'triangle', v: 0.06, vib: 18, vibF: 14, rev: 0.4 }); [79, 83, 86, 91].forEach((m, i) => bell(m, 0.1 + i * 0.06, 0.03, 0.4)); },
+  power: () => [72, 76, 79, 84, 88, 91].forEach((m, i) => { voice({ f: midi(m), t: i * 0.06, d: 0.1, r: 0.15, type: 'square', v: 0.035, n: 2, det: 10, cut: 3500, rev: 0.3 }); }),
+  oneup: () => [76, 79, 88, 84, 86, 91].forEach((m, i) => bell(m, i * 0.08, 0.05, 0.3)),
+  die: () => {
+    [71, 70, 69, 67, 64, 60].forEach((m, i) => voice({ f: midi(m), t: i * 0.15, d: 0.16, r: 0.25, type: 'triangle', v: 0.09, rev: 0.5, vib: 4 }));
+    voice({ f: midi(36), t: 0.9, d: 0.6, r: 0.8, type: 'sine', v: 0.12, rev: 0.6 });
+  },
+  sunrise: () => {
+    const ch = [[60, 64, 67, 72], [62, 65, 69, 74], [64, 67, 71, 76], [65, 69, 72, 77, 81]];
+    ch.forEach((c, k) => c.forEach((m, i) => voice({ f: midi(m), t: k * 0.55 + i * 0.05, d: 0.5, r: 1.2, type: 'sawtooth', v: 0.018, n: 2, det: 9, cut: 1400 + k * 600, rev: 0.7 })));
+    [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => bell(m, 1.7 + i * 0.09, 0.04, 0.9));
+    voice({ f: midi(41), t: 1.65, d: 1.2, r: 1.5, type: 'sine', v: 0.14, rev: 0.4 });
+  },
+  tick: () => bell(96, 0, 0.02, 0.08, 0),
+  check: () => { [79, 83, 86, 91].forEach((m, i) => bell(m, i * 0.08, 0.05, 0.6)); voice({ f: midi(55), d: 0.3, r: 0.6, type: 'triangle', v: 0.06, rev: 0.5 }); },
+  hurt: () => { for (let i = 0; i < 8; i++) bell(96 - i * 2, i * 0.035, 0.035, 0.25); noise({ d: 0.15, v: 0.1, f: 900, f2: 300 }); },
+  spring: () => { voice({ f: 180, f2: 900, d: 0.32, r: 0.15, type: 'triangle', v: 0.12, vib: 30, vibF: 18 }); voice({ f: 360, f2: 1800, d: 0.25, r: 0.1, type: 'sine', v: 0.04 }); },
+  dash: () => { noise({ d: 0.35, v: 0.14, f: 400, f2: 4000, q: 2 }); voice({ f: 400, f2: 1600, d: 0.25, r: 0.1, type: 'sawtooth', v: 0.03, cut: 2500 }); },
+  whoosh: () => { noise({ d: 0.7, v: 0.12, f: 300, f2: 2500, q: 3, rev: 0.3 }); voice({ f: 220, f2: 880, d: 0.6, r: 0.2, type: 'triangle', v: 0.05, rev: 0.3 }); },
+  superdash: c => {
+    voice({ f: 90, f2: 40, d: 0.25, r: 0.2, type: 'sine', v: 0.25 });
+    noise({ d: 0.55, v: 0.18, f: 600, f2: 5000 + c * 3000, q: 1.5, rev: 0.2 });
+    voice({ f: 200, f2: 1400 + c * 1200, d: 0.4, r: 0.2, type: 'sawtooth', v: 0.045, n: 3, det: 14, cut: 4000, dly: 0.2 });
+  },
+  go: () => { [72, 76, 79, 84].forEach(m => voice({ f: midi(m), d: 0.35, r: 0.4, type: 'square', v: 0.025, n: 2, det: 8, cut: 3000, rev: 0.4 })); voice({ f: 110, f2: 45, d: 0.2, r: 0.1, type: 'sine', v: 0.2 }); },
+  ready: () => bell(84, 0, 0.05, 0.25),
+  record: () => [76, 79, 84, 88, 86, 91].forEach((m, i) => { voice({ f: midi(m), t: i * 0.11, d: 0.1, r: 0.2, type: 'square', v: 0.035, n: 2, det: 8, cut: 3200, rev: 0.4 }); bell(m + 12, i * 0.11, 0.02, 0.3); }),
+  zone: () => { [72, 79, 84, 88].forEach((m, i) => bell(m, i * 0.12, 0.045, 1.0, 0.6)); voice({ f: midi(48), d: 0.4, r: 1.2, type: 'sawtooth', v: 0.02, n: 2, det: 10, cut: 800, rev: 0.6 }); },
+  rank: () => { voice({ f: 80, f2: 40, d: 0.2, r: 0.3, type: 'sine', v: 0.22 }); noise({ d: 0.4, v: 0.12, type: 'lowpass', f: 4000, f2: 400, rev: 0.4 }); },
+};
+// ためダッシュ中の「ウィーン」という持続音
+let chargeVoice = null;
+function chargeStart() {
+  if (!AC || muted || chargeVoice) return;
+  const t = AC.currentTime;
+  const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.035, t + 0.05);
+  const fl = AC.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = 6; fl.frequency.value = 500;
+  const trem = AC.createOscillator(); trem.frequency.value = 14;
+  const tg = AC.createGain(); tg.gain.value = 0.015; trem.connect(tg); tg.connect(g.gain);
+  const o1 = AC.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 110;
+  const o2 = AC.createOscillator(); o2.type = 'square'; o2.frequency.value = 221;
+  o1.connect(fl); o2.connect(fl); fl.connect(g); g.connect(sfxBus); sends(g, 0.2, 0);
+  o1.start(); o2.start(); trem.start();
+  chargeVoice = { g, fl, o1, o2, trem };
+}
+function chargeUpdate(c) {
+  if (!chargeVoice) return;
+  const t = AC.currentTime;
+  chargeVoice.o1.frequency.setTargetAtTime(110 + c * 330, t, 0.04);
+  chargeVoice.o2.frequency.setTargetAtTime(221 + c * 660, t, 0.04);
+  chargeVoice.fl.frequency.setTargetAtTime(500 + c * 3500, t, 0.04);
+  chargeVoice.trem.frequency.setTargetAtTime(14 + c * 16, t, 0.05);
+}
+function chargeStop() {
+  if (!chargeVoice || !AC) { chargeVoice = null; return; }
+  const v = chargeVoice, t = AC.currentTime;
+  v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0.0001, t, 0.02);
+  for (const o of [v.o1, v.o2, v.trem]) o.stop(t + 0.15);
+  chargeVoice = null;
+}
+
+// ---------- BGM (オリジナル曲: 夜明けに近づくほど楽器が増えてテンポが上がる) ----------
+//  8 小節ループ (Am | F | C | G | Am | F | G | E)
+const CHORDS = [[57, 60, 64], [57, 60, 65], [55, 60, 64], [55, 59, 62], [57, 60, 64], [57, 60, 65], [55, 59, 62], [56, 59, 64]];
+const ROOTS = [45, 41, 48, 43, 45, 41, 43, 40];
+const MELODY = (() => {   // [小節, 16分の位置, 音, 長さ]
+  const m = [
+    [0, 0, 76, 4], [0, 4, 81, 2], [0, 6, 79, 2], [0, 8, 76, 4], [0, 12, 74, 2], [0, 14, 72, 2],
+    [1, 0, 72, 4], [1, 4, 74, 2], [1, 6, 76, 2], [1, 8, 77, 6], [1, 14, 76, 2],
+    [2, 0, 79, 4], [2, 4, 76, 2], [2, 6, 72, 2], [2, 8, 74, 4], [2, 12, 76, 4],
+    [3, 0, 74, 6], [3, 6, 71, 2], [3, 8, 67, 8],
+    [4, 0, 76, 4], [4, 4, 81, 2], [4, 6, 83, 2], [4, 8, 84, 4], [4, 12, 83, 2], [4, 14, 81, 2],
+    [5, 0, 81, 4], [5, 4, 79, 2], [5, 6, 77, 2], [5, 8, 76, 4], [5, 12, 77, 2], [5, 14, 79, 2],
+    [6, 0, 79, 4], [6, 4, 77, 2], [6, 6, 76, 2], [6, 8, 74, 4], [6, 12, 71, 4],
+    [7, 0, 80, 8], [7, 8, 83, 4], [7, 12, 76, 4],
+  ];
+  const map = new Map(); for (const [b, s, n, l] of m) map.set(b * 16 + s, [n, l]); return map;
+})();
 const bgm = { on: false, step: 0, next: 0 };
 function bgmStart() { bgm.on = true; bgm.step = 0; bgm.next = AC ? AC.currentTime + 0.1 : 0; }
 function bgmStop() { bgm.on = false; }
 function bgmTick() {
   if (!AC || !bgm.on || muted) return;
-  const dur = 0.21 - dawnLevel() * 0.03;
+  const d = dawnLevel();
+  const st = 60 / (108 + d * 30) / 4;          // 16 分音符の長さ
   if (bgm.next < AC.currentTime) bgm.next = AC.currentTime + 0.05;
-  while (bgm.next < AC.currentTime + 0.12) {
-    const d = bgm.next - AC.currentTime;
-    const m = MEL[bgm.step % 32];
-    if (m) tone(midi(m), dur * 0.9, 'triangle', 0.05, null, d);
-    if (bgm.step % 2 === 0) tone(midi(BAS[(bgm.step / 2) % 16]), dur * 1.6, 'sine', 0.09, null, d);
-    bgm.step++; bgm.next += dur;
+  while (bgm.next < AC.currentTime + 0.15) {
+    playStep(bgm.step, bgm.next - AC.currentTime, d, st);
+    bgm.step++; bgm.next += st;
+  }
+}
+function playStep(s, t, d, st) {
+  const bar = Math.floor(s / 16) % 8, pos = s % 16, ch = CHORDS[bar], root = ROOTS[bar];
+  const lay = (a, b) => smooth(a, b, d);       // 楽器ごとのフェードイン
+  const M = musicBus;
+  // パッド (和音) — 夜は暗く、夜明けほど明るい音色
+  if (pos === 0) for (const n of ch) voice({ f: midi(n), t, d: st * 15, a: 0.25, r: 0.6, type: 'sawtooth', n: 2, det: 11, v: 0.011, cut: 700 + d * 1800, rev: 0.6, bus: M });
+  // アルペジオ — 夜は 8 分でまばらに、夜明けは 16 分
+  const arpEvery = d < 0.35 ? 2 : 1;
+  if (pos % arpEvery === 0) {
+    const notes = [ch[0] + 12, ch[1] + 12, ch[2] + 12, ch[1] + 24];
+    voice({ f: midi(notes[(pos / arpEvery) % 4]), t, d: st * 0.6, r: 0.12, type: d < 0.5 ? 'triangle' : 'square', v: d < 0.5 ? 0.022 : 0.012, cut: 2400 + d * 2000, dly: 0.35, rev: 0.25, bus: M });
+  }
+  // ベース
+  const bv = 0.03 + lay(0.1, 0.4) * 0.05;
+  if ([0, 3, 6, 8, 11, 14].includes(pos)) {
+    const n = root + (pos === 6 || pos === 14 ? 12 : 0);
+    voice({ f: midi(n), t, d: st * 1.4, r: 0.05, type: 'sawtooth', v: bv, cut: 380 + d * 500, q: 3, bus: M });
+    voice({ f: midi(n - 12), t, d: st * 1.4, r: 0.05, type: 'sine', v: bv * 1.2, bus: M });
+  }
+  // ドラム
+  const kv = lay(0.2, 0.45), hv = lay(0.05, 0.3), sv = lay(0.5, 0.75);
+  if (kv > 0.01 && (pos === 0 || pos === 8 || (d > 0.6 && pos === 10))) { voice({ f: 120, f2: 42, t, d: 0.09, r: 0.06, type: 'sine', v: 0.3 * kv, bus: M }); noise({ t, d: 0.02, v: 0.05 * kv, f: 3000, bus: M }); }
+  if (hv > 0.01 && (pos % 2 === 1 || (d > 0.65 && pos % 2 === 0))) noise({ t, d: pos % 4 === 2 ? 0.08 : 0.03, v: (pos % 2 ? 0.035 : 0.02) * hv, type: 'highpass', f: 7500, bus: M });
+  if (sv > 0.01 && (pos === 4 || pos === 12)) { noise({ t, d: 0.16, v: 0.13 * sv, f: 1800, q: 0.7, rev: 0.25, bus: M }); voice({ f: 220, f2: 160, t, d: 0.06, r: 0.04, type: 'triangle', v: 0.06 * sv, bus: M }); }
+  // メロディ — 夜はやわらかいベル、夜明けは明るいリード
+  const mel = MELODY.get(bar * 16 + pos);
+  if (mel) {
+    const [n, l] = mel;
+    if (d < 0.5) {
+      voice({ f: midi(n), t, d: st * l * 0.8, a: 0.01, r: 0.25, type: 'triangle', v: 0.04 * (1 - lay(0.35, 0.5) * 0.5), dly: 0.4, rev: 0.4, vib: 3, bus: M });
+      voice({ f: midi(n + 12), t, d: 0.02, r: 0.3, type: 'sine', v: 0.012, rev: 0.4, bus: M });
+    }
+    if (d >= 0.35) {
+      const lv = lay(0.35, 0.55);
+      voice({ f: midi(n), t, d: st * l * 0.85, a: 0.01, r: 0.12, type: 'square', n: 2, det: 9, v: 0.022 * lv, cut: 2200 + d * 1500, dly: 0.25, rev: 0.25, vib: 4, vibF: 5.5, bus: M });
+      if (d > 0.75) voice({ f: midi(n - 12), t, d: st * l * 0.85, r: 0.1, type: 'sawtooth', v: 0.008, cut: 1800, bus: M });
+    }
   }
 }
 
@@ -338,8 +496,27 @@ function buildLevel() {
 
 // ---------- ゲーム状態 ----------
 const G = { mode: 'title', score: 0, drops: 0, lives: 3, cpi: -1, frame: 0, paused: false, wait: 0,
-            clock: 0, final: 0, best: loadBest(), newRecord: false, readyT: 0, goT: 0 };
+            clock: 0, final: 0, best: loadBest(), newRecord: false, readyT: 0, goT: 0,
+            high: 0, newHigh: false, bestRank: '', result: null, clearT: 0 };
+setTimeout(() => { G.high = loadNum('terushino-run-high'); try { G.bestRank = localStorage.getItem('terushino-run-rank') || ''; } catch (e) { } });
 // ---------- タイムアタック ----------
+// ---------- 評価: タイムとスコアそれぞれにランク、2 つを合わせて総合ランク ----------
+const RANKS = ['D', 'C', 'B', 'A', 'S'];
+const RANK_COL = { S: '#ffd84a', A: '#ff8fb1', B: '#7fd8ff', C: '#a8e6a0', D: '#c9c0dd' };
+const TIME_LIMITS = [42, 55, 75, 105];           // 秒: これ以下なら S / A / B / C
+function timeRank(f) { const s = f / 60; const i = TIME_LIMITS.findIndex(l => s <= l); return i < 0 ? 0 : 4 - i; }
+function scoreRank(sc) { const r = sc / L.maxScore; return r >= 0.62 ? 4 : r >= 0.46 ? 3 : r >= 0.34 ? 2 : r >= 0.18 ? 1 : 0; }
+function finishRun() {
+  const tr = timeRank(G.final), sr = scoreRank(G.score);
+  const total = Math.floor((tr + sr) / 2);
+  G.result = { tr: RANKS[tr], sr: RANKS[sr], total: RANKS[total] };
+  G.newHigh = G.score > G.high;
+  if (G.newHigh) { G.high = G.score; saveNum('terushino-run-high', G.high); }
+  if (!G.bestRank || total > RANKS.indexOf(G.bestRank)) { G.bestRank = RANKS[total]; try { localStorage.setItem('terushino-run-rank', G.bestRank); } catch (e) { } }
+  if (G.newRecord || G.newHigh) sfx.record();
+}
+function saveNum(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) { } }
+function loadNum(k) { try { const v = Number(localStorage.getItem(k)); return v > 0 ? v : 0; } catch (e) { return 0; } }
 function loadBest() { try { const v = Number(localStorage.getItem('terushino-run-best')); return v > 0 ? v : 0; } catch (e) { return 0; } }
 function saveBest(v) { try { localStorage.setItem('terushino-run-best', String(v)); } catch (e) { } }
 function fmtTime(f) {
@@ -358,6 +535,10 @@ function loadLevel() {
     camX: 0, look: 0, goalPhase: 0, goalT: 0, beam: 0, sunrise: 0, zone: -1, banner: null, prog: 0,
     shoot: null,
   };
+  // スコア評価の基準: ステージで取れる点のおおよその満点
+  let drops = 0, jars = 0, suns = 0, clouds = 0;
+  for (const row of L.grid) for (const c of row) { if (c === 'o') drops++; else if (c === 'Q') jars++; else if (c === 'M') suns++; else if (c === 'B') clouds++; }
+  L.maxScore = drops * 110 + jars * 700 + suns * 1000 + clouds * 50 + L.enemies.length * 150;
 }
 const HERO_H = 78;                // 主人公の見た目の身長 (px)
 function makePlayer(tx) {
@@ -596,7 +777,6 @@ function updatePlayer() {
       if (dir) p.face = dir;          // ためている間は向きだけ変えられる
       dir = 0;
       p.vx *= 0.8;
-      if (G.frame % 6 === 0) sfx.charge(p.charge);
       if (G.frame % 2 === 0) {
         const a = Math.random() * Math.PI * 2, r = 34 + Math.random() * 16;
         const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
@@ -808,10 +988,8 @@ function startGoal() {
   P.star = 0; P.hurt = 0; P.boost = 0; P.charging = false; P.dash = 0;
   G.final = G.clock;
   if (!G.best || G.final < G.best) { G.best = G.final; G.newRecord = true; saveBest(G.final); }
-  const bonus = Math.max(0, Math.round((300 - G.final / 60) * 50));
-  if (bonus) addScore(bonus);
   L.pops.push({ x: P.x - 40, y: P.y - 30, text: 'タイム ' + fmtTime(G.final), t: 150, color: '#bfe8ff' });
-  bgmStop(); tone(1047, 0.5, 'triangle', 0.1, 523);
+  bgmStop(); bell(84, 0, 0.06, 0.8); bell(91, 0.08, 0.05, 1);
 }
 function updateGoal() {
   const p = P;
@@ -841,13 +1019,13 @@ function updateGoal() {
       if (G.frame % 3 === 0) sfx.tick();
     } else { L.goalPhase = 4; L.goalT = 50; }
   } else if (L.goalPhase === 4) {
-    if (--L.goalT <= 0) { G.mode = 'clear'; G.wait = 40; if (G.newRecord) sfx.record(); }
+    if (--L.goalT <= 0) { G.mode = 'clear'; G.wait = 40; G.clearT = 0; finishRun(); }
   }
 }
 
 function update() {
   G.frame++;
-  if (pressed.mute) muted = !muted;
+  if (pressed.mute) setMuted(!muted);
   warmChunks();
   switch (G.mode) {
     case 'title':
@@ -897,6 +1075,7 @@ function update() {
       break;
   }
   bgmTick();
+  if (G.mode === 'play' && !G.paused && P && P.charging) { chargeStart(); chargeUpdate(P.charge); } else if (chargeVoice) chargeStop();
   for (const k in pressed) delete pressed[k];
 }
 
@@ -1730,7 +1909,7 @@ function render() {
     if (G.frame % 60 < 42) text(startMsg, cx, 392, 22, '#fff', 'center');
     if (!IS_TOUCH) text('←→ 移動　Space/Z ジャンプ　Shift/X 長押しでためて、はなすとスーパーダッシュ', cx, 422, 15, '#e3d4ff', 'center');
     else text('◀▶ 移動　A ジャンプ　B 長押しでためて、はなすとスーパーダッシュ', cx, 422, 15, '#e3d4ff', 'center');
-    text(G.best ? 'ベストタイム  ' + fmtTime(G.best) : 'ゴールまでのタイムをきそおう！', cx, 448, 16, '#bfe8ff', 'center');
+    text(G.best ? `ベストタイム ${fmtTime(G.best)}　ハイスコア ${G.high}${G.bestRank ? '　最高ランク ' + G.bestRank : ''}` : 'はやく、たくさん集めてゴール！ タイムとスコアでランクが決まる', cx, 448, 16, '#bfe8ff', 'center');
   } else {
     drawHUD();
     if (G.mode !== 'ready') drawBanner();
@@ -1738,7 +1917,6 @@ function render() {
   if (G.mode === 'ready') {
     const n = G.readyT > 90 ? 0 : Math.ceil(G.readyT / 30);
     text(n > 0 ? String(n) : 'READY', cx, H / 2 - 30, n > 0 ? 64 : 48, '#ffe066', 'center');
-    text(G.best ? 'ベスト ' + fmtTime(G.best) : 'タイムアタック', cx, H / 2 + 20, 18, '#cfd8ff', 'center');
   }
   if (G.mode === 'play' && G.goT > 0) {
     ctx.globalAlpha = Math.min(1, G.goT / 15);
@@ -1757,15 +1935,34 @@ function render() {
     if (G.wait <= 0 && G.frame % 60 < 42) text(backMsg, cx, H / 2 + 150, 20, '#fff', 'center');
   }
   if (G.mode === 'clear') {
-    panel(cx - 260, 70, 520, 400);
-    text('夜明けだ！ 笑顔がもどった！', cx, 110, 32, '#ffc61a', 'center');
-    drawHero(cx, 255 - Math.abs(Math.sin(G.frame * 0.1)) * 12, { scale: 1.3, face: 1, walk: 0, happy: true, glow: true });
-    text('クリアタイム', cx, 285, 15, '#cfd8ff', 'center');
-    text(fmtTime(G.final), cx, 318, 40, '#ffffff', 'center');
-    if (G.newRecord) { if (G.frame % 40 < 28) text('NEW RECORD!', cx, 356, 22, '#ffe066', 'center'); }
-    else text('ベスト  ' + fmtTime(G.best), cx, 356, 18, '#bfe8ff', 'center');
-    text('スコア  ' + G.score, cx, 392, 20, '#ffe6a8', 'center');
-    if (G.wait <= 0 && G.frame % 60 < 42) text(backMsg, cx, 440, 18, '#fff', 'center');
+    panel(cx - 300, 60, 600, 420);
+    text('夜明けだ！ 笑顔がもどった！', cx, 98, 30, '#ffc61a', 'center');
+    drawHero(cx - 190, 300 - Math.abs(Math.sin(G.frame * 0.1)) * 10, { scale: 1.4, face: 1, walk: 0, happy: true, glow: true });
+    const R0 = G.result || { tr: 'D', sr: 'D', total: 'D' };
+    const ct = G.clearT = (G.clearT || 0) + 1;      // 結果を順番に表示
+    const badge = (r, x, y, size) => {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(x, y, size * 0.62, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = RANK_COL[r]; ctx.lineWidth = 3; ctx.stroke();
+      text(r, x, y + 1, size, RANK_COL[r], 'center');
+    };
+    const lx = cx - 70, rxx = cx + 230;
+    text('クリアタイム', lx, 150, 15, '#cfd8ff');
+    text(fmtTime(G.final), lx, 182, 32, '#ffffff');
+    if (ct > 20) badge(R0.tr, rxx, 172, 30);
+    if (G.newRecord && G.frame % 40 < 28) text('NEW RECORD!', lx + 210, 150, 14, '#ffe066', 'right');
+    text('スコア', lx, 224, 15, '#cfd8ff');
+    text(String(G.score), lx, 256, 32, '#ffe6a8');
+    if (ct > 45) badge(R0.sr, rxx, 246, 30);
+    if (G.newHigh && G.frame % 40 < 28) text('HIGH SCORE!', lx + 210, 224, 14, '#ffe066', 'right');
+    ctx.strokeStyle = 'rgba(255,220,170,0.35)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lx, 292); ctx.lineTo(rxx + 30, 292); ctx.stroke();
+    text('総合ランク', lx, 335, 20, '#ffffff');
+    if (ct > 75) {
+      const k = Math.min(1, (ct - 75) / 12), sz = 64 + (1 - k) * 60;
+      ctx.globalAlpha = k; badge(R0.total, rxx - 30, 330, sz); ctx.globalAlpha = 1;
+      if (ct === 76) sfx.rank();
+    }
+    text(`ベスト ${fmtTime(G.best)}　ハイスコア ${G.high}`, lx, 392, 14, '#bfe8ff');
+    if (G.wait <= 0 && G.frame % 60 < 42) text(backMsg, cx, 450, 18, '#fff', 'center');
   }
 }
 
