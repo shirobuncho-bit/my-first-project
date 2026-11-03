@@ -120,32 +120,17 @@ def face_happy():
         d.ellipse([ex - 30, ey - 15, ex + 30, ey + 15], fill=(255, 140, 70))
     return np.array(pil)
 
-def face_tired():
-    """ミスしたとき: 目を閉じて眠ってしまった顔 (×目は使わない)"""
+def face_dead():
     rgb = blank_face(base_rgb)
     rgb[feat_masks[mouth_i]] = base_rgb[feat_masks[mouth_i]]
     pil = Image.fromarray(rgb)
     d = ImageDraw.Draw(pil)
     for i in eyes_i:
         eys, exs = np.where(feat_masks[i])
-        ex, ey = exs.mean(), eys.mean() + 8
-        d.arc([ex - 26, ey - 40, ex + 26, ey + 14], 15, 165, fill=(14, 14, 13), width=20)
-    return np.array(pil)
-
-def face_neutral():
-    """夜明けが近づいたとき: への字が少しゆるんだ、まっすぐな口"""
-    rgb = blank_face(base_rgb)
-    for i in eyes_i:
-        rgb[feat_masks[i]] = base_rgb[feat_masks[i]]
-    ys, xs = np.where(feat_masks[mouth_i])
-    pil = Image.fromarray(rgb)
-    d = ImageDraw.Draw(pil)
-    cy = int(ys.mean()) - 4
-    w = (xs.max() - xs.min()) * 0.36
-    cx = xs.mean()
-    d.line([cx - w, cy + 4, cx + w, cy + 4], fill=(14, 14, 13), width=26)
-    d.ellipse([cx - w - 13, cy - 9, cx - w + 13, cy + 17], fill=(14, 14, 13))
-    d.ellipse([cx + w - 13, cy - 9, cx + w + 13, cy + 17], fill=(14, 14, 13))
+        ex, ey = exs.mean(), eys.mean()
+        s = 24
+        d.line([ex - s, ey - s, ex + s, ey + s], fill=(14, 14, 13), width=16)
+        d.line([ex - s, ey + s, ex + s, ey - s], fill=(14, 14, 13), width=16)
     return np.array(pil)
 
 parts = {
@@ -156,8 +141,7 @@ parts = {
     'torso': with_mask(base_rgb, torso),
     'head': with_mask(base_rgb, is_head),
     'headHappy': with_mask(face_happy(), is_head),
-    'headTired': with_mask(face_tired(), is_head),
-    'headNeutral': with_mask(face_neutral(), is_head),
+    'headDead': with_mask(face_dead(), is_head),
 }
 
 meta = {'scale': OUT_SCALE, 'height': round((feet_y - np.where(core.any(1))[0].min()) * OUT_SCALE, 2),
