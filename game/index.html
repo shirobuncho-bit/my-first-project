@@ -905,7 +905,11 @@ function updatePlayer() {
   for (let i = G.cpi + 1; i < L.cps.length; i++) {
     if (p.x > L.cps[i] * T) {
       G.cpi = i; sfx.check();
-      L.pops.push({ x: L.cps[i] * T - 60, y: 11 * T, text: 'ランタンに灯がともった！', t: 90, color: '#ffe066' });
+      L.cpBanner = { n: i + 1, total: L.cps.length, t: 170 };
+      for (let k = 0; k < 14; k++) {   // ランタンから光がはじける
+        const a = k / 14 * Math.PI * 2;
+        L.parts.push({ kind: 'spark', x: L.cps[i] * T + 24, y: 15 * T - 62, vx: Math.cos(a) * 2.5, vy: Math.sin(a) * 2.5 - 1, t: 36 });
+      }
     }
   }
   // ゾーン看板
@@ -1005,6 +1009,7 @@ function updateParts() {
   L.pops = L.pops.filter(s => s.t > 0);
   for (const m of [L.bumps, L.springs]) for (const [k, v] of m) { if (v <= 1) m.delete(k); else m.set(k, v - 1); }
   if (L.banner && --L.banner.t <= 0) L.banner = null;
+  if (L.cpBanner && --L.cpBanner.t <= 0) L.cpBanner = null;
   // 流れ星 (夜のあいだだけ)
   if (L.shoot) { L.shoot.t--; if (L.shoot.t <= 0) L.shoot = null; }
   else if (dawnLevel() < 0.45 && Math.random() < 0.006) L.shoot = { x: 200 + Math.random() * (W - 200), y: 20 + Math.random() * 120, t: 40 };
@@ -1258,6 +1263,7 @@ function drawGloomBubbles(camX) {
   for (const e of L.enemies) {
     if (e.type !== 'gloom' || e.state || !(e.think > 0) || !e.word) continue;
     const x = Math.round(e.x - camX), y = Math.round(e.y);
+    if (x < -e.w || x > W) continue;   // 敵が画面の外に出たらふきだしも消す
     ctx.globalAlpha = Math.min(1, e.think / 20, (240 - e.think) / 12);
     ctx.font = '700 17px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
     const tw = ctx.measureText(e.word).width + 24, bx = clamp(x + e.w / 2 - tw / 2, 6, W - tw - 6), by = y - 50;
@@ -1754,6 +1760,13 @@ function drawCheckpoints(camX) {
     ctx.fillStyle = '#3b2230'; rr(lx - 7, ly - 2, 14, 4, 2); ctx.fill();
     ctx.fillStyle = lit ? '#ffd36e' : 'rgba(190,200,220,0.5)'; rr(lx - 6, ly + 2, 12, 15, 4); ctx.fill();
     ctx.strokeStyle = '#3b2230'; ctx.lineWidth = 2; ctx.stroke();
+    // 「CHECK」の看板 (通過すると緑になって ✓)
+    const sx = x - 30, sy = gy - 40;
+    ctx.fillStyle = '#3b2230'; ctx.fillRect(x - 2, sy, 4, 40);
+    ctx.fillStyle = lit ? '#3fae6a' : '#5a4a7a'; rr(sx, sy - 18, 60, 22, 5); ctx.fill();
+    ctx.strokeStyle = lit ? '#bff5cf' : '#c9bde8'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = '900 12px system-ui, -apple-system, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff'; ctx.fillText(lit ? '✓ CHECK' : 'CHECK', x, sy - 6.5);
   });
 }
 
@@ -1867,6 +1880,20 @@ function drawHUD() {
   text(z.name, rx + 18, 41, 13, '#fff1e0');
   text(fmtTime(G.mode === 'goal' || G.mode === 'clear' ? G.final : G.clock), rx + rw - 16, 32, 19, '#ffffff', 'right');
   if (muted) text('♪ OFF', rx - 14, 32, 13, '#d8cce8', 'right');
+}
+function drawCheckpointBanner() {
+  const b = L.cpBanner; if (!b) return;
+  const a = clamp(Math.min(b.t / 25, (170 - b.t) / 10), 0, 1);
+  const pop = 1 + Math.max(0, (10 - (170 - b.t)) / 10) * 0.25;
+  const cx = W / 2, y = 128;
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(cx, y); ctx.scale(pop, pop);
+  const g = ctx.createLinearGradient(0, -34, 0, 34);
+  g.addColorStop(0, 'rgba(63,174,106,0.92)'); g.addColorStop(1, 'rgba(30,110,70,0.92)');
+  ctx.fillStyle = g; rr(-210, -34, 420, 68, 34); ctx.fill();
+  ctx.strokeStyle = '#d8ffe4'; ctx.lineWidth = 3; ctx.stroke();
+  text('✓ CHECKPOINT  ' + b.n + ' / ' + b.total, 0, -9, 26, '#ffffff', 'center', '#1d5a3a');
+  text('ミスしても ここから再スタート', 0, 18, 15, '#e6ffee', 'center', '#1d5a3a');
+  ctx.restore();
 }
 function drawBanner() {
   const b = L.banner; if (!b) return;
@@ -2009,7 +2036,7 @@ function render() {
     text(IS_TOUCH ? 'タップでタイトルにもどる' : 'Enter でタイトルにもどる', cx, 440, 16, '#cfd8ff', 'center');
   } else {
     drawHUD();
-    if (G.mode !== 'ready') drawBanner();
+    if (G.mode !== 'ready') { drawBanner(); drawCheckpointBanner(); }
     if (G.mode === 'play' && !G.paused) drawPauseButton();
   }
   if (G.mode === 'ready') {
