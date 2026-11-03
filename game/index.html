@@ -166,7 +166,16 @@ document.querySelectorAll('#touch button').forEach(b => {
   b.addEventListener('pointerleave', off);
   b.addEventListener('contextmenu', e => e.preventDefault());
 });
-cv.addEventListener('pointerdown', () => { initAudio(); pressed.start = true; });
+// 画面上のボタン (一時停止・メニュー) をタップ/クリック。ボタン以外をタップしたらスタート扱い
+const UI = [];   // 描画のたびに作り直す { x, y, w, h, act }
+cv.addEventListener('pointerdown', e => {
+  initAudio();
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
+  const b = UI.find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+  if (b) { e.preventDefault(); G.uiAct = b.act; }
+  else pressed.tap = true;
+});
 
 // ---------- サウンド (WebAudio: 小さなシンセ + リバーブ + ディレイ) ----------
 let AC = null, muted = false;
@@ -341,7 +350,7 @@ const bgm = { on: false, step: 0, next: 0 };
 function bgmStart() { bgm.on = true; bgm.step = 0; bgm.next = AC ? AC.currentTime + 0.1 : 0; }
 function bgmStop() { bgm.on = false; }
 function bgmTick() {
-  if (!AC || !bgm.on || muted) return;
+  if (!AC || !bgm.on || muted || G.paused) return;
   const d = dawnLevel();
   const st = 60 / (108 + d * 30) / 4;          // 16 分音符の長さ
   if (bgm.next < AC.currentTime) bgm.next = AC.currentTime + 0.05;
@@ -567,6 +576,13 @@ function makeEnemy(d) {
   const w = 28, h = 26;
   return { type: d.type, x: d.tx * T + 2, y: (d.ty + 1) * T - h, w, h, vx: d.type === 'thorn' ? -1.1 : -0.8, vy: 0,
            active: false, state: null, t: 0, anim: hash(d.tx) * 6, onGround: false, hitWall: 0, ang: 0 };
+}
+// タイトルの「ゲーム終了」: 音を止めて全画面を解除し、おわりの画面へ (ブラウザのタブはページからは閉じられない)
+function quitApp() {
+  bgmStop(); chargeStop();
+  G.mode = 'bye'; G.sel = 0;
+  try { if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen()); } catch (e) { }
+  try { window.close(); } catch (e) { }
 }
 function newGame() {
   G.score = 0; G.drops = 0; G.lives = 3; G.cpi = -1;
@@ -1050,7 +1066,14 @@ function update() {
       L.camX = (Math.sin(G.frame / 600) * 0.5 + 0.5) * 1400;
       L.prog = 0;
       updatePlats(); updateParts();
-      if (pressed.start || pressed.jump) { initAudio(); newGame(); }
+      if (pressed.left || pressed.right) { G.sel = G.sel ? 0 : 1; sfx.tick(); }
+      if (G.uiAct) { G.sel = G.uiAct === 'quit' ? 1 : 0; }
+      if (G.uiAct === 'start' || pressed.tap || ((pressed.start || pressed.jump) && !G.sel)) { initAudio(); G.sel = 0; newGame(); }
+      else if (G.uiAct === 'quit' || ((pressed.start || pressed.jump) && G.sel)) quitApp();
+      break;
+    case 'bye':
+      updatePlats(); updateParts();
+      if (pressed.start || pressed.jump || pressed.tap || G.uiAct) { G.mode = 'title'; G.sel = 0; }
       break;
     case 'ready':
       updatePlats(); updateParts(); updateCamera();
@@ -1058,8 +1081,13 @@ function update() {
       if (--G.readyT <= 0) { G.mode = 'play'; G.goT = 45; sfx.go(); }
       break;
     case 'play':
-      if (pressed.pause) G.paused = !G.paused;
-      if (G.paused) break;
+      if (G.paused) {
+        if (pressed.left || pressed.right) { G.psel = G.psel ? 0 : 1; sfx.tick(); }
+        if (G.uiAct === 'resume' || pressed.pause || ((pressed.start || pressed.jump) && !G.psel)) G.paused = false;
+        else if (G.uiAct === 'exit' || ((pressed.start || pressed.jump) && G.psel)) { G.paused = false; bgmStop(); G.mode = 'title'; G.sel = 0; loadLevel(); }
+        break;
+      }
+      if (pressed.pause || G.uiAct === 'pause') { G.paused = true; G.psel = 0; for (const k in keys) keys[k] = false; sfx.ready(); break; }
       G.clock++;
       if (G.goT > 0) G.goT--;
       updatePlats();
@@ -1088,12 +1116,13 @@ function update() {
           t: 420, c: ['#ffb36b', '#ffd23f', '#ff8fb1', '#fff3b0'][Math.floor(Math.random() * 4)] });
       }
       if (G.wait > 0) G.wait--;
-      else if (pressed.start || pressed.jump) { G.mode = 'title'; loadLevel(); }
+      else if (pressed.start || pressed.jump || pressed.tap) { G.mode = 'title'; loadLevel(); }
       break;
   }
   bgmTick();
   if (G.mode === 'play' && !G.paused && P && P.charging) { chargeStart(); chargeUpdate(P.charge); } else if (chargeVoice) chargeStop();
   for (const k in pressed) delete pressed[k];
+  G.uiAct = null;
 }
 
 // ============================================================
@@ -1909,7 +1938,25 @@ function drawWorld() {
   }
 }
 
+function uiButton(label, x, y, w, h, act, selected, color = '#ffc61a') {
+  UI.push({ x, y, w, h, act });
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, selected ? 'rgba(255,214,120,0.95)' : 'rgba(70,50,120,0.9)');
+  g.addColorStop(1, selected ? 'rgba(230,150,60,0.95)' : 'rgba(36,24,72,0.9)');
+  ctx.fillStyle = g; rr(x, y, w, h, h / 2); ctx.fill();
+  ctx.strokeStyle = selected ? '#fff6e0' : color; ctx.lineWidth = selected ? 3 : 2; ctx.stroke();
+  text(label, x + w / 2, y + h / 2 + 1, 20, selected ? '#2a1640' : '#fff6e6', 'center', selected ? 'rgba(255,255,255,0.6)' : '#1c0f30');
+}
+// 一時停止ボタン (右上)
+function drawPauseButton() {
+  const s = 44, x = W - 16 - s, y = 62;
+  UI.push({ x: x - 6, y: y - 6, w: s + 12, h: s + 12, act: 'pause' });
+  ctx.fillStyle = 'rgba(30,18,58,0.55)'; ctx.beginPath(); ctx.arc(x + s / 2, y + s / 2, s / 2, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,220,170,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#fff6e6'; rr(x + 14, y + 12, 6, 20, 2); ctx.fill(); rr(x + 24, y + 12, 6, 20, 2); ctx.fill();
+}
 function render() {
+  UI.length = 0;
   if (!L) loadLevel();
   drawWorld();
   const cx = W / 2;
@@ -1923,31 +1970,43 @@ function render() {
     drawHero(cx, 345 + bob, { scale: 1.6, face: 1, walk: 0 });
     drawHero(cx - 180, 345, { scale: 1, face: 1, walk: G.frame * 0.2 });
     ctx.save(); ctx.translate(cx + 180, 345); ctx.scale(1.4, 1.4); drawEnemy({ x: -14, y: -26, w: 28, h: 26, type: 'gloom', vx: -1, anim: 0 }, 0); ctx.restore();
-    if (G.frame % 60 < 42) text(startMsg, cx, 392, 22, '#fff', 'center');
+    uiButton('スタート', cx - 210, 362, 200, 44, 'start', !G.sel);
+    uiButton('ゲーム終了', cx + 10, 362, 200, 44, 'quit', !!G.sel);
     if (IS_IOS && !STANDALONE) {
       // iPhone は Safari では全画面にできないので、ホーム画面への追加を案内
       ctx.fillStyle = 'rgba(255,198,26,0.16)'; rr(cx - 300, 486, 600, 30, 15); ctx.fill();
       text('全画面で遊ぶには：共有ボタン →「ホーム画面に追加」→ ホーム画面のアイコンから起動', cx, 501, 13, '#ffe6a8', 'center');
     }
-    if (!IS_TOUCH) text('←→ 移動　Space/Z ジャンプ　Shift/X 長押しでためて、はなすとスーパーダッシュ', cx, 422, 15, '#e3d4ff', 'center');
-    else text('◀▶ 移動　A ジャンプ　B 長押しでためて、はなすとスーパーダッシュ', cx, 422, 15, '#e3d4ff', 'center');
-    text(G.best ? `ベストタイム ${fmtTime(G.best)}　ハイスコア ${G.high}${G.bestRank ? '　最高ランク ' + G.bestRank : ''}` : 'はやく、たくさん集めてゴール！ タイムとスコアでランクが決まる', cx, 448, 16, '#bfe8ff', 'center');
+    if (!IS_TOUCH) text('←→ 移動　Space/Z ジャンプ　Shift/X 長押しでためて、はなすとスーパーダッシュ　P/Esc 一時停止', cx, 430, 14, '#e3d4ff', 'center');
+    else text('◀▶ 移動　A ジャンプ　B 長押しでためて、はなすとスーパーダッシュ', cx, 430, 15, '#e3d4ff', 'center');
+    text(G.best ? `ベストタイム ${fmtTime(G.best)}　ハイスコア ${G.high}${G.bestRank ? '　最高ランク ' + G.bestRank : ''}` : 'はやく、たくさん集めてゴール！ タイムとスコアでランクが決まる', cx, 456, 16, '#bfe8ff', 'center');
+  } else if (G.mode === 'bye') {
+    ctx.fillStyle = 'rgba(8,4,24,0.8)'; ctx.fillRect(0, 0, W, H);
+    text('あそんでくれてありがとう！', cx, 150, 36, '#ffc61a', 'center');
+    drawHero(cx, 340, { scale: 1.6, face: 1, walk: 0, happy: true, glow: true });
+    text('このタブ（またはアプリ）を閉じて終了してください', cx, 395, 18, '#fff6e6', 'center');
+    text(IS_TOUCH ? 'タップでタイトルにもどる' : 'Enter でタイトルにもどる', cx, 440, 16, '#cfd8ff', 'center');
   } else {
     drawHUD();
     if (G.mode !== 'ready') drawBanner();
+    if (G.mode === 'play' && !G.paused) drawPauseButton();
   }
   if (G.mode === 'ready') {
     const n = G.readyT > 90 ? 0 : Math.ceil(G.readyT / 30);
     text(n > 0 ? String(n) : 'READY', cx, H / 2 - 30, n > 0 ? 64 : 48, '#ffe066', 'center');
   }
-  if (G.mode === 'play' && G.goT > 0) {
+  if (G.mode === 'play' && G.goT > 0 && !G.paused) {
     ctx.globalAlpha = Math.min(1, G.goT / 15);
     text('GO!', cx, H / 2 - 30, 64 + (45 - G.goT), '#ffc61a', 'center');
     ctx.globalAlpha = 1;
   }
   if (G.mode === 'play' && G.paused) {
-    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(0, 0, W, H);
-    text('ひとやすみ中', cx, H / 2, 44, '#fff', 'center');
+    ctx.fillStyle = 'rgba(6,4,20,0.55)'; ctx.fillRect(0, 0, W, H);
+    panel(cx - 240, H / 2 - 120, 480, 230);
+    text('ひとやすみ中', cx, H / 2 - 70, 40, '#fff6e6', 'center');
+    text('タイム ' + fmtTime(G.clock) + '　スコア ' + G.score, cx, H / 2 - 22, 16, '#cfd8ff', 'center');
+    uiButton('つづける', cx - 210, H / 2 + 20, 200, 48, 'resume', !G.psel);
+    uiButton('ゲームをやめる', cx + 10, H / 2 + 20, 200, 48, 'exit', !!G.psel);
   }
   if (G.mode === 'gameover') {
     ctx.fillStyle = 'rgba(8,4,24,0.72)'; ctx.fillRect(0, 0, W, H);
