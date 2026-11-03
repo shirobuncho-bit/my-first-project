@@ -187,6 +187,11 @@ const sfx = {
   spring: () => tone(260, 0.35, 'sine', 0.12, 1100),
   dash: () => tone(500, 0.3, 'sawtooth', 0.04, 1500),
   whoosh: () => tone(300, 0.6, 'triangle', 0.06, 900),
+  charge: c => tone(220 + c * 700, 0.07, 'square', 0.03),
+  superdash: c => { tone(260, 0.5, 'sawtooth', 0.06, 1600 + c * 600); tone(130, 0.35, 'square', 0.05, 520, 0.02); },
+  go: () => tone(1046, 0.4, 'square', 0.06),
+  ready: () => tone(523, 0.15, 'square', 0.05),
+  record: () => [784, 988, 1175, 1568, 1319, 1568].forEach((f, i) => tone(f, 0.14, 'square', 0.05, null, i * 0.1)),
   zone: () => [523, 784, 1047].forEach((f, i) => tone(f, 0.4, 'sine', 0.07, null, i * 0.12)),
 };
 // BGM: オリジナルの短いループ (夜明けが近づくほどテンポが上がる)
@@ -199,8 +204,7 @@ function bgmStart() { bgm.on = true; bgm.step = 0; bgm.next = AC ? AC.currentTim
 function bgmStop() { bgm.on = false; }
 function bgmTick() {
   if (!AC || !bgm.on || muted) return;
-  const hurry = G.mode === 'play' && G.time <= 60;
-  const dur = hurry ? 0.15 : 0.21 - dawnLevel() * 0.03;
+  const dur = 0.21 - dawnLevel() * 0.03;
   if (bgm.next < AC.currentTime) bgm.next = AC.currentTime + 0.05;
   while (bgm.next < AC.currentTime + 0.12) {
     const d = bgm.next - AC.currentTime;
@@ -333,7 +337,15 @@ function buildLevel() {
 }
 
 // ---------- ゲーム状態 ----------
-const G = { mode: 'title', score: 0, drops: 0, lives: 3, time: 500, cpi: -1, frame: 0, paused: false, wait: 0 };
+const G = { mode: 'title', score: 0, drops: 0, lives: 3, cpi: -1, frame: 0, paused: false, wait: 0,
+            clock: 0, final: 0, best: loadBest(), newRecord: false, readyT: 0, goT: 0 };
+// ---------- タイムアタック ----------
+function loadBest() { try { const v = Number(localStorage.getItem('terushino-run-best')); return v > 0 ? v : 0; } catch (e) { return 0; } }
+function saveBest(v) { try { localStorage.setItem('terushino-run-best', String(v)); } catch (e) { } }
+function fmtTime(f) {
+  const cs = Math.floor(f * 100 / 60);
+  return `${Math.floor(cs / 6000)}'${String(Math.floor(cs / 100) % 60).padStart(2, '0')}"${String(cs % 100).padStart(2, '0')}`;
+}
 let L, P;
 
 function loadLevel() {
@@ -360,14 +372,16 @@ function makeEnemy(d) {
 }
 function newGame() {
   G.score = 0; G.drops = 0; G.lives = 3; G.cpi = -1;
+  G.clock = 0; G.newRecord = false;
   startLevel();
+  G.mode = 'ready'; G.readyT = 120;   // READY → GO! でタイム計測スタート
 }
 function startLevel() {
   loadLevel();
   const sx = G.cpi >= 0 ? L.cps[G.cpi] : 8;   // スタート位置は左下のボタンに隠れない所
   P = makePlayer(sx);
   G.drops = 0;
-  G.time = 500; G.timeAcc = 0; G.mode = 'play'; G.paused = false;
+  G.mode = 'play'; G.paused = false;
   L.camX = clamp(P.x - W * 0.4, 0, L.LW * T - W);
   L.prog = progressOf(P.x);
   L.zone = ZONES.findLastIndex(z => sx >= z.x) - 1;   // 開始ゾーンの看板を出す
@@ -507,11 +521,13 @@ function hurtPlayer() {
     const s = 3 + (i % 3);
     L.items.push({ kind: 'lost', x: cx - 8, y: cy - 8, w: 16, h: 16, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 2, b: 6, t: 200, wait: 30, onGround: false, hitWall: 0 });
   }
+  P.charging = false; P.dash = 0;
   P.hurt = 120; P.vy = -6; P.vx = -P.face * 3; P.onGround = false; P.loop = null; P.jumped = false; P.rot = 0;
   sfx.hurt();
 }
 function killPlayer() {
   if (P.dead) return;
+  P.charging = false; P.dash = 0;
   P.dead = true; P.vy = -10; P.vx = 0; P.deadT = 0; P.star = 0; P.loop = null; P.rot = 0;
   G.mode = 'dying'; bgmStop(); sfx.die();
 }
@@ -563,8 +579,36 @@ function updatePlayer() {
   }
   if (p.loop) { updateLoop(); return; }
 
-  const max = keys.run ? 8 : 6;
-  const dir = p.hurt > 95 ? 0 : (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  const max = 6;
+  let dir = p.hurt > 95 ? 0 : (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  // B 長押しでためる (その場でプルプル) → はなすとスーパーダッシュ
+  if (keys.run && p.onGround && !p.charging && p.hurt <= 95) { p.charging = true; p.charge = 0; }
+  if (p.charging) {
+    if (!p.onGround || pressed.jump) p.charging = false;
+    else if (!keys.run) {
+      p.charging = false;
+      p.vx = p.face * (8 + 6 * p.charge);
+      p.dash = Math.round(50 + 80 * p.charge);
+      sfx.superdash(p.charge);
+      dust(p.x + p.w / 2, p.y + p.h, -p.face); dust(p.x + p.w / 2 - p.face * 10, p.y + p.h, -p.face);
+    } else {
+      p.charge = Math.min(1, p.charge + 1 / 45);
+      if (dir) p.face = dir;          // ためている間は向きだけ変えられる
+      dir = 0;
+      p.vx *= 0.8;
+      if (G.frame % 6 === 0) sfx.charge(p.charge);
+      if (G.frame % 2 === 0) {
+        const a = Math.random() * Math.PI * 2, r = 34 + Math.random() * 16;
+        const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+        L.parts.push({ kind: 'gather', x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, vx: -Math.cos(a) * r / 14, vy: -Math.sin(a) * r / 14, t: 14 });
+      }
+    }
+  }
+  if (p.dash > 0) {
+    p.dash--;
+    if (Math.abs(p.vx) < 3) p.dash = 0;
+    if (G.frame % 2 === 0) L.parts.push({ kind: 'spark', x: p.x + p.w / 2 - Math.sign(p.vx) * 12, y: p.y + 12 + Math.random() * 44, vx: -Math.sign(p.vx) * 1.5, vy: 0, t: 22 });
+  }
   if (p.onGround) {
     if (dir) {
       if (dir * p.vx < 0) { p.vx += dir * 0.5; if (Math.abs(p.vx) > 3 && G.frame % 4 === 0) dust(p.x + p.w / 2, p.y + p.h, -dir); }
@@ -574,12 +618,12 @@ function updatePlayer() {
       p.vx -= Math.sign(p.vx) * Math.min(Math.abs(p.vx), 0.12);
     }
     p.vx += Math.sin(p.ang) * 0.3;                            // 坂道で加速・減速
-    if (Math.abs(p.vx) > max && !(p.boost > 0)) p.vx -= Math.sign(p.vx) * 0.04;
+    if (Math.abs(p.vx) > max && !(p.boost > 0) && !(p.dash > 0)) p.vx -= Math.sign(p.vx) * 0.04;
   } else if (dir) {
     if (Math.abs(p.vx) < max || dir * p.vx < 0) p.vx += dir * 0.14;
     p.face = dir;
   }
-  p.vx = clamp(p.vx, -12, 12);
+  p.vx = clamp(p.vx, -14, 14);
   if (p.boost > 0) p.boost--;
 
   // ジャンプ (先行入力 + コヨーテタイム)
@@ -629,7 +673,7 @@ function updatePlayer() {
   for (let ty = tp; ty <= bt; ty++) for (let tx = l; tx <= r; tx++) {
     const c = tile(tx, ty);
     if (c === '^') {
-      if (overlap(p, { x: tx * T + 3, y: ty * T + 14, w: 26, h: 18 })) hurtPlayer();
+      if (!(p.dash > 0) && overlap(p, { x: tx * T + 3, y: ty * T + 14, w: 26, h: 18 })) hurtPlayer();
     } else if ((c === 'J' || c === 'K') && p.vy >= 0) {
       if (overlap({ x: p.x, y: p.y + p.h - 10, w: p.w, h: 10 }, { x: tx * T + 3, y: ty * T + 12, w: 26, h: 20 })) {
         p.vy = c === 'K' ? -19 : -14; p.onGround = false; p.spring = true; p.jumped = false;
@@ -684,9 +728,9 @@ function updateEnemies(interact) {
   if (interact && !P.dead) {
     for (const e of alive) {
       if (e.state || !overlap(P, e)) continue;
-      const attack = P.loop || P.star > 0 || (e.type !== 'thorn' && ((P.jumped && !P.onGround) || (P.vy > 0 && P.lastBottom <= e.y + 12)));
+      const attack = P.loop || P.star > 0 || P.dash > 0 || (e.type !== 'thorn' && ((P.jumped && !P.onGround) || (P.vy > 0 && P.lastBottom <= e.y + 12)));
       if (attack) {
-        if (P.star > 0 || P.loop) { flipKill(e); addScore(200, e.x, e.y); continue; }
+        if (P.star > 0 || P.loop || P.dash > 0) { flipKill(e); addScore(200, e.x, e.y); continue; }
         e.state = 'squash'; e.t = 30;
         if (P.vy > 0) P.vy = keys.jump ? -10 : -7;
         const pts = [100, 200, 400, 800, 1000, 2000, 4000, 8000];
@@ -761,7 +805,12 @@ function updateCamera() {
 // ゴール: 祭壇の中央まで歩く → 光の柱 → 主人公が朝日のように昇る → 夜が明ける
 function startGoal() {
   G.mode = 'goal'; L.goalPhase = 0; L.goalT = 0;
-  P.star = 0; P.hurt = 0; P.boost = 0;
+  P.star = 0; P.hurt = 0; P.boost = 0; P.charging = false; P.dash = 0;
+  G.final = G.clock;
+  if (!G.best || G.final < G.best) { G.best = G.final; G.newRecord = true; saveBest(G.final); }
+  const bonus = Math.max(0, Math.round((300 - G.final / 60) * 50));
+  if (bonus) addScore(bonus);
+  L.pops.push({ x: P.x - 40, y: P.y - 30, text: 'タイム ' + fmtTime(G.final), t: 150, color: '#bfe8ff' });
   bgmStop(); tone(1047, 0.5, 'triangle', 0.1, 523);
 }
 function updateGoal() {
@@ -787,13 +836,12 @@ function updateGoal() {
     }
   } else if (L.goalPhase === 3) {
     if (L.goalT > 0) L.goalT--;
-    else if (G.time > 0 || G.drops > 0) {
-      if (G.time > 0) { const n = Math.min(G.time, 3); G.time -= n; G.score += 50 * n; }
-      else { const n = Math.min(G.drops, 2); G.drops -= n; G.score += 100 * n; }
+    else if (G.drops > 0) {
+      const n = Math.min(G.drops, 2); G.drops -= n; G.score += 100 * n;
       if (G.frame % 3 === 0) sfx.tick();
     } else { L.goalPhase = 4; L.goalT = 50; }
   } else if (L.goalPhase === 4) {
-    if (--L.goalT <= 0) { G.mode = 'clear'; G.wait = 40; }
+    if (--L.goalT <= 0) { G.mode = 'clear'; G.wait = 40; if (G.newRecord) sfx.record(); }
   }
 }
 
@@ -809,21 +857,23 @@ function update() {
       updatePlats(); updateParts();
       if (pressed.start || pressed.jump) { initAudio(); newGame(); }
       break;
+    case 'ready':
+      updatePlats(); updateParts(); updateCamera();
+      if (G.readyT % 30 === 0 && G.readyT <= 90) sfx.ready();
+      if (--G.readyT <= 0) { G.mode = 'play'; G.goT = 45; sfx.go(); }
+      break;
     case 'play':
       if (pressed.pause) G.paused = !G.paused;
       if (G.paused) break;
+      G.clock++;
+      if (G.goT > 0) G.goT--;
       updatePlats();
       updatePlayer();
       if (G.mode === 'play') updateEnemies(true);
       updateItems(); updateParts(); updateCamera();
-      if (G.mode === 'play' && ++G.timeAcc >= 60) {
-        G.timeAcc = 0; G.time--;
-        if (G.time === 60) { tone(880, 0.3, 'square', 0.06); tone(880, 0.3, 'square', 0.06, null, 0.35); }
-        if (G.time <= 0) { G.time = 0; killPlayer(); }
-      }
       break;
     case 'dying':
-      P.deadT++;
+      P.deadT++; G.clock++;
       if (P.deadT > 30) { P.vy += 0.5; P.y += P.vy; }
       updateParts();
       if (P.deadT > 150) {
@@ -1564,14 +1614,13 @@ function drawHUD() {
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(mx, gy, 6, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#1c0f30'; ctx.lineWidth = 2; ctx.stroke();
   }
-  // 右上: ゾーン名と残り時間
+  // 右上: ゾーン名と経過タイム
   const z = ZONES[Math.max(0, L.zone)];
   const rw = 220, rx = W - pad - rw;
   hudPill(rx, 10, rw, 44);
   text(z.time, rx + 18, 24, 12, '#ffd2a1');
   text(z.name, rx + 18, 41, 13, '#fff1e0');
-  const tm = Math.max(0, G.time);
-  text(String(tm), rx + rw - 18, 32, 20, tm <= 60 && G.frame % 30 < 15 ? '#ff8a8a' : '#fff', 'right');
+  text(fmtTime(G.mode === 'goal' || G.mode === 'clear' ? G.final : G.clock), rx + rw - 16, 32, 19, '#ffffff', 'right');
   if (muted) text('♪ OFF', rx - 14, 32, 13, '#d8cce8', 'right');
 }
 function drawBanner() {
@@ -1619,11 +1668,22 @@ function drawWorld() {
   if (P && !P.hidden && G.mode !== 'title') {
     const blink = G.mode === 'play' && ((P.star > 0 && P.star < 120) || P.hurt > 0) && G.frame % 6 < 3;
     if (!blink) {
-      const fx = P.loop ? P.feetX : P.x + P.w / 2, fy = P.loop ? P.feetY : P.y + P.h;
+      let fx = P.loop ? P.feetX : P.x + P.w / 2, fy = P.loop ? P.feetY : P.y + P.h;
+      if (P.charging) {
+        // ためオーラ + プルプル
+        const r = 30 + P.charge * 22, cx = fx - camX, cy = fy - 34;
+        const ag = ctx.createRadialGradient(cx, cy, 4, cx, cy, r);
+        ag.addColorStop(0, `rgba(255,236,150,${0.15 + P.charge * 0.35})`); ag.addColorStop(1, 'rgba(255,180,60,0)');
+        ctx.fillStyle = ag; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = `rgba(255,230,140,${0.4 + 0.4 * Math.sin(G.frame * 0.5)})`; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cx, cy, r * (0.6 + 0.4 * ((G.frame % 12) / 12)), 0, Math.PI * 2); ctx.stroke();
+        const amp = 1 + P.charge * 2.5;
+        fx += (G.frame % 2 ? 1 : -1) * amp; fy += (Math.random() - 0.5) * amp * 0.6;
+      }
       drawHero(fx - camX, fy, {
         face: P.face, walk: P.walk, air: !P.onGround && !P.dead && !P.loop, rot: P.dead ? 0 : P.rot,
         happy: P.star > 0 || (G.mode === 'goal' && L.goalPhase >= 1) || G.mode === 'clear',
-        glow: P.star > 0 || (G.mode === 'goal' && L.goalPhase >= 2), dead: P.dead,
+        glow: P.star > 0 || P.dash > 0 || (P.charging && P.charge >= 1) || (G.mode === 'goal' && L.goalPhase >= 2), dead: P.dead,
       });
     }
   }
@@ -1632,6 +1692,8 @@ function drawWorld() {
     if (p.kind === 'puff') {
       ctx.globalAlpha = p.t / 32; ctx.fillStyle = p.c;
       ctx.beginPath(); ctx.arc(x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    } else if (p.kind === 'gather') {
+      ctx.fillStyle = `rgba(255,240,170,${p.t / 14})`; ctx.beginPath(); ctx.arc(x, p.y, 2.2, 0, Math.PI * 2); ctx.fill();
     } else if (p.kind === 'spark') {
       ctx.globalAlpha = Math.min(1, p.t / 30); drawSunIcon(x, p.y, 2, '#fff3a0'); ctx.globalAlpha = 1;
     } else if (p.kind === 'ring') {
@@ -1666,12 +1728,22 @@ function render() {
     drawHero(cx - 180, 345, { scale: 1, face: 1, walk: G.frame * 0.2 });
     ctx.save(); ctx.translate(cx + 180, 345); ctx.scale(1.4, 1.4); drawEnemy({ x: -14, y: -26, w: 28, h: 26, type: 'gloom', vx: -1, anim: 0 }, 0); ctx.restore();
     if (G.frame % 60 < 42) text(startMsg, cx, 392, 22, '#fff', 'center');
-    if (!IS_TOUCH) text('←→ 移動　Space/Z/↑ ジャンプ　Shift/X ダッシュ　P ポーズ　M 音', cx, 430, 15, '#e3d4ff', 'center');
-    else text('◀▶ 移動　A ジャンプ　B ダッシュ', cx, 430, 15, '#e3d4ff', 'center');
-    text('坂を駆け下りて加速！ 夜が明ける前に日の出の祭壇へ', cx, 456, 15, '#e3d4ff', 'center');
+    if (!IS_TOUCH) text('←→ 移動　Space/Z ジャンプ　Shift/X 長押しでためて、はなすとスーパーダッシュ', cx, 422, 15, '#e3d4ff', 'center');
+    else text('◀▶ 移動　A ジャンプ　B 長押しでためて、はなすとスーパーダッシュ', cx, 422, 15, '#e3d4ff', 'center');
+    text(G.best ? 'ベストタイム  ' + fmtTime(G.best) : 'ゴールまでのタイムをきそおう！', cx, 448, 16, '#bfe8ff', 'center');
   } else {
     drawHUD();
-    drawBanner();
+    if (G.mode !== 'ready') drawBanner();
+  }
+  if (G.mode === 'ready') {
+    const n = G.readyT > 90 ? 0 : Math.ceil(G.readyT / 30);
+    text(n > 0 ? String(n) : 'READY', cx, H / 2 - 30, n > 0 ? 64 : 48, '#ffe066', 'center');
+    text(G.best ? 'ベスト ' + fmtTime(G.best) : 'タイムアタック', cx, H / 2 + 20, 18, '#cfd8ff', 'center');
+  }
+  if (G.mode === 'play' && G.goT > 0) {
+    ctx.globalAlpha = Math.min(1, G.goT / 15);
+    text('GO!', cx, H / 2 - 30, 64 + (45 - G.goT), '#ffc61a', 'center');
+    ctx.globalAlpha = 1;
   }
   if (G.mode === 'play' && G.paused) {
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(0, 0, W, H);
@@ -1685,12 +1757,15 @@ function render() {
     if (G.wait <= 0 && G.frame % 60 < 42) text(backMsg, cx, H / 2 + 150, 20, '#fff', 'center');
   }
   if (G.mode === 'clear') {
-    panel(cx - 260, 100, 520, 340);
-    text('夜明けだ！', cx, 152, 48, '#ffc61a', 'center');
-    drawHero(cx, 330 - Math.abs(Math.sin(G.frame * 0.1)) * 14, { scale: 1.6, face: 1, walk: 0, happy: true, glow: true });
-    text('笑顔がもどった！', cx, 362, 22, '#fff', 'center');
-    text('スコア  ' + G.score, cx, 398, 22, '#ffe6a8', 'center');
-    if (G.wait <= 0 && G.frame % 60 < 42) text(backMsg, cx, 470, 18, '#fff', 'center');
+    panel(cx - 260, 70, 520, 400);
+    text('夜明けだ！ 笑顔がもどった！', cx, 110, 32, '#ffc61a', 'center');
+    drawHero(cx, 255 - Math.abs(Math.sin(G.frame * 0.1)) * 12, { scale: 1.3, face: 1, walk: 0, happy: true, glow: true });
+    text('クリアタイム', cx, 285, 15, '#cfd8ff', 'center');
+    text(fmtTime(G.final), cx, 318, 40, '#ffffff', 'center');
+    if (G.newRecord) { if (G.frame % 40 < 28) text('NEW RECORD!', cx, 356, 22, '#ffe066', 'center'); }
+    else text('ベスト  ' + fmtTime(G.best), cx, 356, 18, '#bfe8ff', 'center');
+    text('スコア  ' + G.score, cx, 392, 20, '#ffe6a8', 'center');
+    if (G.wait <= 0 && G.frame % 60 < 42) text(backMsg, cx, 440, 18, '#fff', 'center');
   }
 }
 
