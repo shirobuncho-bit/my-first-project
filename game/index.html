@@ -580,13 +580,6 @@ function makeEnemy(d) {
   return { type: d.type, x: d.tx * T + 2, y: (d.ty + 1) * T - h, w, h, vx: d.type === 'thorn' ? -1.1 : -0.8, vy: 0,
            active: false, state: null, t: 0, anim: hash(d.tx) * 6, onGround: false, hitWall: 0, ang: 0 };
 }
-// タイトルの「ゲーム終了」: 音を止めて全画面を解除し、おわりの画面へ (ブラウザのタブはページからは閉じられない)
-function quitApp() {
-  bgmStop(); chargeStop();
-  G.mode = 'bye'; G.sel = 0;
-  try { if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen()); } catch (e) { }
-  try { window.close(); } catch (e) { }
-}
 function newGame() {
   G.score = 0; G.drops = 0; G.lives = 3; G.cpi = -1;
   G.clock = 0; G.newRecord = false;
@@ -1076,14 +1069,7 @@ function update() {
       L.camX = (Math.sin(G.frame / 600) * 0.5 + 0.5) * 1400;
       L.prog = 0;
       updatePlats(); updateParts();
-      if (pressed.left || pressed.right) { G.sel = G.sel ? 0 : 1; sfx.tick(); }
-      if (G.uiAct) { G.sel = G.uiAct === 'quit' ? 1 : 0; }
-      if (G.uiAct === 'start' || pressed.tap || ((pressed.start || pressed.jump) && !G.sel)) { initAudio(); G.sel = 0; newGame(); }
-      else if (G.uiAct === 'quit' || ((pressed.start || pressed.jump) && G.sel)) quitApp();
-      break;
-    case 'bye':
-      updatePlats(); updateParts();
-      if (pressed.start || pressed.jump || pressed.tap || G.uiAct) { G.mode = 'title'; G.sel = 0; }
+      if (G.uiAct === 'start' || pressed.tap || pressed.start || pressed.jump) { initAudio(); newGame(); }
       break;
     case 'ready':
       updatePlats(); updateParts(); updateCamera();
@@ -1094,7 +1080,7 @@ function update() {
       if (G.paused) {
         if (pressed.left || pressed.right) { G.psel = G.psel ? 0 : 1; sfx.tick(); }
         if (G.uiAct === 'resume' || pressed.pause || ((pressed.start || pressed.jump) && !G.psel)) G.paused = false;
-        else if (G.uiAct === 'exit' || ((pressed.start || pressed.jump) && G.psel)) { G.paused = false; bgmStop(); G.mode = 'title'; G.sel = 0; loadLevel(); }
+        else if (G.uiAct === 'exit' || ((pressed.start || pressed.jump) && G.psel)) { G.paused = false; bgmStop(); G.mode = 'title'; loadLevel(); }
         break;
       }
       if (pressed.pause || G.uiAct === 'pause') { G.paused = true; G.psel = 0; for (const k in keys) keys[k] = false; sfx.ready(); break; }
@@ -2018,8 +2004,7 @@ function render() {
     drawHero(cx, 345 + bob, { scale: 1.6, face: 1, walk: 0 });
     drawHero(cx - 180, 345, { scale: 1, face: 1, walk: G.frame * 0.2 });
     ctx.save(); ctx.translate(cx + 180, 345); ctx.scale(1.4, 1.4); drawEnemy({ x: -14, y: -26, w: 28, h: 26, type: 'gloom', vx: -1, anim: 0 }, 0); ctx.restore();
-    uiButton('スタート', cx - 210, 362, 200, 44, 'start', !G.sel);
-    uiButton('ゲーム終了', cx + 10, 362, 200, 44, 'quit', !!G.sel);
+    uiButton('スタート', cx - 120, 362, 240, 46, 'start', G.frame % 60 < 42);
     if (IS_IOS && !STANDALONE) {
       // iPhone は Safari では全画面にできないので、ホーム画面への追加を案内
       ctx.fillStyle = 'rgba(255,198,26,0.16)'; rr(cx - 300, 486, 600, 30, 15); ctx.fill();
@@ -2028,12 +2013,6 @@ function render() {
     if (!IS_TOUCH) text('←→ 移動　Space/Z ジャンプ　Shift/X 長押しでためて、はなすとスーパーダッシュ　P/Esc 一時停止', cx, 430, 14, '#e3d4ff', 'center');
     else text('◀▶ 移動　A ジャンプ　B 長押しでためて、はなすとスーパーダッシュ', cx, 430, 15, '#e3d4ff', 'center');
     text(G.best ? `ベストタイム ${fmtTime(G.best)}　ハイスコア ${G.high}${G.bestRank ? '　最高ランク ' + G.bestRank : ''}` : 'はやく、たくさん集めてゴール！ タイムとスコアでランクが決まる', cx, 456, 16, '#bfe8ff', 'center');
-  } else if (G.mode === 'bye') {
-    ctx.fillStyle = 'rgba(8,4,24,0.8)'; ctx.fillRect(0, 0, W, H);
-    text('あそんでくれてありがとう！', cx, 150, 36, '#ffc61a', 'center');
-    drawHero(cx, 340, { scale: 1.6, face: 1, walk: 0, happy: true, glow: true });
-    text('このタブ（またはアプリ）を閉じて終了してください', cx, 395, 18, '#fff6e6', 'center');
-    text(IS_TOUCH ? 'タップでタイトルにもどる' : 'Enter でタイトルにもどる', cx, 440, 16, '#cfd8ff', 'center');
   } else {
     drawHUD();
     if (G.mode !== 'ready') { drawBanner(); drawCheckpointBanner(); }
