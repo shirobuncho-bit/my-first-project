@@ -2044,7 +2044,7 @@ function render() {
   }
   if (G.mode === 'clear') {
     panel(cx - 300, 60, 600, 420);
-    text('夜明けだ！ 笑顔がもどった！', cx, 98, 30, '#ffc61a', 'center');
+    text('夜明けだ！ 今日はどんな日になるかな？', cx, 98, 30, '#ffc61a', 'center');
     drawHero(cx - 190, 300 - Math.abs(Math.sin(G.frame * 0.1)) * 10, { scale: 1.4, face: 1, walk: 0, happy: true, glow: true });
     const R0 = G.result || { tr: 'D', sr: 'D', total: 'D' };
     const ct = G.clearT = (G.clearT || 0) + 1;      // 結果を順番に表示
