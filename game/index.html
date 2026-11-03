@@ -427,6 +427,13 @@ const ZONES = [
 // ---------- 裏のテーマ: こころの夜と、ゆっくりした夜明け ----------
 //  夜 = 気持ちが重く沈んだ時間 / どんよりぐも = 頭の中のネガティブな声
 //  ひかりのしずく = 日々の小さなよろこび / ランタン = だれかの支え / 夜明け = 回復
+// セリフは画面に固定して表示 (スクロールで流れていかないように)。1 つずつ順番に出す
+function say(textStr, color = '#fff6e6', dur = 200) {
+  if (!L) return;
+  if (!L.msgs) L.msgs = [];
+  if (L.msgs.length >= 3) return;
+  L.msgs.push({ text: textStr, color, t: dur, dur });
+}
 const GLOOM_WORDS = ['どうせ むりだよ', 'もう いやだ…', 'だれも わかってくれない', 'ぜんぶ じぶんのせい', 'つかれた…', 'なにも したくない', 'みんな できてるのに'];
 const JOYS = ['あったかいお茶', 'ぐっすり眠れた', '好きな歌を聴いた', '「おはよう」って言えた', 'ひなたぼっこ', 'おいしいごはん', '空がきれいだった', '深呼吸できた', 'ちょっと外に出られた', '「ありがとう」って言われた'];
 const LANTERN_WORDS = ['ここで ひと息。休んでもいいんだよ', 'だれかに話すと、すこし軽くなる', 'きみのペースで いいんだよ', 'ここまで来た自分を ほめてあげよう'];
@@ -621,7 +628,7 @@ function addScore(n, x, y) { G.score += n; if (x !== undefined) L.pops.push({ x,
 function addDrop() {
   G.drops++; sfx.drop();
   G.joy = (G.joy || 0) + 1;
-  if (G.joy % 15 === 0 && P && G.mode === 'play') L.pops.push({ x: P.x - 30, y: P.y - 20, text: JOYS[(G.joy / 15 - 1) % JOYS.length], t: 100, color: '#ffe9c2' });
+  if (G.joy % 15 === 0 && P && G.mode === 'play' && !(L.msgs && L.msgs.length)) say('「' + JOYS[(G.joy / 15 - 1) % JOYS.length] + '」', '#ffe9c2', 170);
   if (G.drops % 100 === 0) oneUp();
 }
 function oneUp() { G.lives++; sfx.oneup(); L.pops.push({ x: P.x, y: P.y - 10, text: '1UP', t: 70, color: '#9dffb0' }); }
@@ -738,7 +745,7 @@ function gloomClears(e) {
   if (e.type !== 'gloom' || e.state) return;
   L.items.push({ kind: 'droppop', x: e.x + 6, y: e.y - 10, vy: -7, t: 26 });
   addDrop();
-  if (!G.cleared) L.pops.push({ x: e.x - 40, y: e.y - 40, text: 'もやもやが、晴れた', t: 100, color: '#d8ccff' });
+
   G.cleared = (G.cleared || 0) + 1;
 }
 function hurtPlayer() {
@@ -752,7 +759,7 @@ function hurtPlayer() {
     const s = 3 + (i % 3);
     L.items.push({ kind: 'lost', x: cx - 8, y: cy - 8, w: 16, h: 16, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 2, b: 6, t: 200, wait: 30, onGround: false, hitWall: 0 });
   }
-  if (!G.hurtTold) { G.hurtTold = true; L.pops.push({ x: P.x - 60, y: P.y - 40, text: 'うまくいかない日もある。拾いなおせばいい', t: 130, color: '#cfe6ff' }); }
+  if (!G.hurtTold) { G.hurtTold = true; say('うまくいかない日もある。拾いなおせばいい', '#cfe6ff', 230); }
   P.charging = false; P.dash = 0;
   P.hurt = 120; P.vy = -6; P.vx = -P.face * 3; P.onGround = false; P.loop = null; P.jumped = false; P.rot = 0;
   sfx.hurt();
@@ -920,7 +927,7 @@ function updatePlayer() {
   for (let i = G.cpi + 1; i < L.cps.length; i++) {
     if (p.x > L.cps[i] * T) {
       G.cpi = i; sfx.check();
-      L.pops.push({ x: L.cps[i] * T - 90, y: 11 * T, text: LANTERN_WORDS[i % LANTERN_WORDS.length], t: 150, color: '#ffe066' });
+      say(LANTERN_WORDS[i % LANTERN_WORDS.length], '#ffe066', 240);
     }
   }
   // ゾーン看板
@@ -948,7 +955,7 @@ function updateEnemies(interact) {
     if (e.vx === 0) e.vx = -vx0;
     e.anim += e.vx * 0.09;
     if (e.think > 0) e.think--;
-    else if (e.type === 'gloom' && P && Math.abs(e.x - P.x) < 420 && Math.random() < 0.006) { e.think = 160; e.word = GLOOM_WORDS[Math.floor(Math.random() * GLOOM_WORDS.length)]; }
+    else if (e.type === 'gloom' && !e.spoke && e.x - L.camX < W - 60 && e.x - L.camX > 40) { e.spoke = true; e.think = 240; e.word = GLOOM_WORDS[Math.floor(Math.random() * GLOOM_WORDS.length)]; }
   }
   const alive = L.enemies.filter(e => e.active && !e.state);
   for (let i = 0; i < alive.length; i++) for (let j = i + 1; j < alive.length; j++) {
@@ -1021,6 +1028,7 @@ function updateParts() {
   L.pops = L.pops.filter(s => s.t > 0);
   for (const m of [L.bumps, L.springs]) for (const [k, v] of m) { if (v <= 1) m.delete(k); else m.set(k, v - 1); }
   if (L.banner && --L.banner.t <= 0) L.banner = null;
+  if (L.msgs && L.msgs.length && !G.paused && --L.msgs[0].t <= 0) L.msgs.shift();
   // 流れ星 (夜のあいだだけ)
   if (L.shoot) { L.shoot.t--; if (L.shoot.t <= 0) L.shoot = null; }
   else if (dawnLevel() < 0.45 && Math.random() < 0.006) L.shoot = { x: 200 + Math.random() * (W - 200), y: 20 + Math.random() * 120, t: 40 };
@@ -1267,16 +1275,25 @@ function drawEnemy(e, camX) {
     ctx.beginPath(); ctx.arc(-4 + lk * 1.4, -0.5, 1.6, 0, Math.PI * 2); ctx.arc(4 + lk * 1.4, -0.5, 1.6, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
-  if (e.type === 'gloom' && !e.state && e.think > 0 && e.word) {
+
+}
+
+// どんよりぐものふきだし (夜の暗さより手前に描いて読みやすく)
+function drawGloomBubbles(camX) {
+  for (const e of L.enemies) {
+  if (e.type !== 'gloom' || e.state || !(e.think > 0) || !e.word) continue;
+  const x = Math.round(e.x - camX), y = Math.round(e.y);
+  {
     // 頭の中のネガティブな声 (ふきだし)
-    const al = Math.min(1, e.think / 20, (160 - e.think) / 15);
+    const al = Math.min(1, e.think / 20, (240 - e.think) / 12);
     ctx.globalAlpha = al;
-    ctx.font = '700 12px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
-    const tw = ctx.measureText(e.word).width + 18, bx = x + e.w / 2 - tw / 2, by = y - 40;
-    ctx.fillStyle = 'rgba(40,30,70,0.85)'; rr(bx, by, tw, 24, 12); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + e.w / 2 + 2, by + 29, 3, 0, Math.PI * 2); ctx.arc(x + e.w / 2 + 6, by + 35, 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#c9bde8'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e.word, bx + tw / 2, by + 12.5);
+    ctx.font = '700 17px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+    const tw = ctx.measureText(e.word).width + 24, bx = clamp(x + e.w / 2 - tw / 2, 6, W - tw - 6), by = y - 50;
+    ctx.fillStyle = 'rgba(40,30,70,0.88)'; rr(bx, by, tw, 32, 16); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + e.w / 2 + 2, by + 38, 4, 0, Math.PI * 2); ctx.arc(x + e.w / 2 + 7, by + 45, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#c9bde8'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e.word, bx + tw / 2, by + 16.5);
     ctx.globalAlpha = 1;
+  }
   }
 }
 
@@ -1880,6 +1897,19 @@ function drawHUD() {
   text(fmtTime(G.mode === 'goal' || G.mode === 'clear' ? G.final : G.clock), rx + rw - 16, 32, 19, '#ffffff', 'right');
   if (muted) text('♪ OFF', rx - 14, 32, 13, '#d8cce8', 'right');
 }
+function drawMessages() {
+  const m = L.msgs && L.msgs[0];
+  if (!m) return;
+  const a = clamp(Math.min((m.dur - m.t) / 15, m.t / 20), 0, 1);
+  const y = L.banner ? 290 : 108;
+  ctx.globalAlpha = a;
+  ctx.font = '900 22px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+  const tw = Math.min(W - 24, ctx.measureText(m.text).width + 48);
+  ctx.fillStyle = 'rgba(20,12,44,0.72)'; rr(W / 2 - tw / 2, y - 22, tw, 44, 22); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,220,170,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+  text(m.text, W / 2, y + 1, 22, m.color, 'center');
+  ctx.globalAlpha = 1;
+}
 function drawBanner() {
   const b = L.banner; if (!b) return;
   const a = Math.min(1, b.t / 30, (200 - b.t) / 20);
@@ -1887,11 +1917,11 @@ function drawBanner() {
   const cx = W / 2, y = 140;
   const g = ctx.createLinearGradient(cx - 300, 0, cx + 300, 0);
   g.addColorStop(0, 'rgba(20,12,44,0)'); g.addColorStop(0.2, 'rgba(20,12,44,0.7)'); g.addColorStop(0.8, 'rgba(20,12,44,0.7)'); g.addColorStop(1, 'rgba(20,12,44,0)');
-  ctx.fillStyle = g; ctx.fillRect(cx - 300, y - 40, 600, 106);
+  ctx.fillStyle = g; ctx.fillRect(cx - 300, y - 40, 600, 118);
   text(`ZONE ${b.n}`, cx, y - 20, 14, '#ffd2a1', 'center');
   text(b.name, cx, y + 4, 32, '#fff6e6', 'center');
   text(b.time, cx, y + 30, 14, '#cfd8ff', 'center');
-  if (b.voice) text('「' + b.voice + '」', cx, y + 52, 15, '#ffe6d0', 'center');
+  if (b.voice) text('「' + b.voice + '」', cx, y + 58, 21, '#ffe6d0', 'center');
   ctx.globalAlpha = 1;
 }
 function panel(x, y, w, h) {
@@ -1965,6 +1995,7 @@ function drawWorld() {
   }
   drawForeground(camX);
   drawLighting(camX);
+  drawGloomBubbles(camX);
   for (const s of L.pops) {
     ctx.globalAlpha = Math.min(1, s.t / 20);
     text(s.text, s.x - camX, s.y, 15, s.color || '#fff');
@@ -2020,11 +2051,10 @@ function render() {
     drawHero(cx, 340, { scale: 1.6, face: 1, walk: 0, happy: true, glow: true });
     text('このタブ（またはアプリ）を閉じて終了してください', cx, 385, 17, '#fff6e6', 'center');
     text(IS_TOUCH ? 'タップでタイトルにもどる' : 'Enter でタイトルにもどる', cx, 418, 15, '#cfd8ff', 'center');
-    text('つらい気持ちが続くときは、ひとりで抱えこまず、だれかに話してみてね。', cx, 470, 14, '#ffe6d0', 'center');
-    text('相談先は、厚生労働省「まもろうよ こころ」で調べられます。', cx, 494, 14, '#ffe6d0', 'center');
+    text('つらいときは、だれかに話してみてね。', cx, 476, 20, '#ffe6d0', 'center');
   } else {
     drawHUD();
-    if (G.mode !== 'ready') drawBanner();
+    if (G.mode !== 'ready') { drawBanner(); drawMessages(); }
     if (G.mode === 'play' && !G.paused) drawPauseButton();
   }
   if (G.mode === 'ready') {
@@ -2040,7 +2070,7 @@ function render() {
     ctx.fillStyle = 'rgba(6,4,20,0.55)'; ctx.fillRect(0, 0, W, H);
     panel(cx - 240, H / 2 - 135, 480, 250);
     text('ひとやすみ中', cx, H / 2 - 92, 40, '#fff6e6', 'center');
-    text('休むのも、前に進むこと。', cx, H / 2 - 52, 17, '#ffe6d0', 'center');
+    text('休むのも、前に進むこと。', cx, H / 2 - 50, 21, '#ffe6d0', 'center');
     text('タイム ' + fmtTime(G.clock) + '　スコア ' + G.score, cx, H / 2 - 22, 15, '#cfd8ff', 'center');
     uiButton('つづける', cx - 210, H / 2 + 20, 200, 48, 'resume', !G.psel);
     uiButton('ゲームをやめる', cx + 10, H / 2 + 20, 200, 48, 'exit', !!G.psel);
@@ -2083,7 +2113,7 @@ function render() {
       if (ct === 76) sfx.rank();
     }
     text(`ベスト ${fmtTime(G.best)}　ハイスコア ${G.high}`, lx, 386, 14, '#bfe8ff');
-    text('つらい夜も、いつか明ける。ひとりで抱えこまないでね。', cx, 418, 15, '#ffe6d0', 'center');
+    text('つらい夜も、いつか明ける。ひとりで抱えこまないでね。', cx, 420, 18, '#ffe6d0', 'center');
     if (G.wait <= 0 && G.frame % 60 < 42) text(backMsg, cx, 452, 16, '#fff', 'center');
   }
 }
