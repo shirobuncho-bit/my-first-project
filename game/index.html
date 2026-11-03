@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="てるしのくん">
+<meta name="theme-color" content="#0b0820">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
 <title>てるしのくんRUN</title>
 <style>
   :root { --ctrl-top: auto; }
@@ -36,7 +41,7 @@
   }
   @media (pointer: coarse) {
     #touch { display: flex; }
-    body.fs-ok:not(.portrait) #fs { display: block; }
+    body.fs-ok:not(.portrait):not(.standalone) #fs { display: block; }
   }
   /* スマホ縦持ち: 横長のゲーム画面を上に、下半分をコントローラーに */
   body.portrait #wrap { align-items: flex-start; padding-top: max(10px, env(safe-area-inset-top, 0px)); }
@@ -109,16 +114,28 @@ fit(); requestAnimationFrame(fit);
 
 const fsBtn = document.getElementById('fs');
 if (document.fullscreenEnabled || document.webkitFullscreenEnabled) document.body.classList.add('fs-ok');
-fsBtn.addEventListener('click', async () => {
+// ホーム画面から起動したとき (ブラウザの枠なし)
+const STANDALONE = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
+const IS_IOS = /iPhone|iPod/.test(navigator.userAgent) || (/iPad|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+async function enterFullscreen() {
+  const el = document.documentElement;
   try {
-    const el = document.documentElement;
-    if (!document.fullscreenElement) {
-      await (el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen());
-      try { await screen.orientation.lock('landscape'); } catch (e) { }
-    } else await document.exitFullscreen();
+    if (!(document.fullscreenElement || document.webkitFullscreenElement))
+      await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen());
   } catch (e) { }
   setTimeout(fit, 300);
+}
+fsBtn.addEventListener('click', async () => {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    try { await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen()); } catch (e) { }
+    setTimeout(fit, 300);
+  } else enterFullscreen();
 });
+// スマホでは最初のタップで自動的に全画面にする (Android など対応ブラウザのみ。iPhone の Safari は非対応)
+if (STANDALONE) document.body.classList.add('standalone');
+let autoFs = IS_TOUCH && !STANDALONE;
+addEventListener('pointerup', () => { if (autoFs) { autoFs = false; enterFullscreen(); } }, true);
+addEventListener('fullscreenchange', () => setTimeout(fit, 100));
 
 // ---------- 入力 ----------
 const keys = {}, pressed = {};
@@ -1907,6 +1924,11 @@ function render() {
     drawHero(cx - 180, 345, { scale: 1, face: 1, walk: G.frame * 0.2 });
     ctx.save(); ctx.translate(cx + 180, 345); ctx.scale(1.4, 1.4); drawEnemy({ x: -14, y: -26, w: 28, h: 26, type: 'gloom', vx: -1, anim: 0 }, 0); ctx.restore();
     if (G.frame % 60 < 42) text(startMsg, cx, 392, 22, '#fff', 'center');
+    if (IS_IOS && !STANDALONE) {
+      // iPhone は Safari では全画面にできないので、ホーム画面への追加を案内
+      ctx.fillStyle = 'rgba(255,198,26,0.16)'; rr(cx - 300, 486, 600, 30, 15); ctx.fill();
+      text('全画面で遊ぶには：共有ボタン →「ホーム画面に追加」→ ホーム画面のアイコンから起動', cx, 501, 13, '#ffe6a8', 'center');
+    }
     if (!IS_TOUCH) text('←→ 移動　Space/Z ジャンプ　Shift/X 長押しでためて、はなすとスーパーダッシュ', cx, 422, 15, '#e3d4ff', 'center');
     else text('◀▶ 移動　A ジャンプ　B 長押しでためて、はなすとスーパーダッシュ', cx, 422, 15, '#e3d4ff', 'center');
     text(G.best ? `ベストタイム ${fmtTime(G.best)}　ハイスコア ${G.high}${G.bestRank ? '　最高ランク ' + G.bestRank : ''}` : 'はやく、たくさん集めてゴール！ タイムとスコアでランクが決まる', cx, 448, 16, '#bfe8ff', 'center');
