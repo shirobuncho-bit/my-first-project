@@ -428,6 +428,38 @@ const ZONES = [
 //  夜 = 気持ちが重く沈んだ時間 / どんよりぐも = 頭の中のネガティブな声
 //  ひかりのしずく = 日々の小さなよろこび / ランタン = だれかの支え / 夜明け = 回復
 // セリフは画面に固定して表示 (スクロールで流れていかないように)。1 つずつ順番に出す
+// てるしのくんの心の声: 頭の上に「もくもく」の考えごとふきだしで出す (キャラについて動くので流れていかない)
+function heroThink(textStr, dur = 220) { if (P) P.thought = { text: textStr, t: dur, dur }; }
+function drawHeroThought(camX) {
+  const th = P && P.thought;
+  if (!th || th.t <= 0 || P.hidden || G.mode !== 'play') return;
+  if (!G.paused) th.t--;
+  const a = clamp(Math.min((th.dur - th.t) / 12, th.t / 20), 0, 1);
+  const hx = (P.loop ? P.feetX : P.x + P.w / 2) - camX, hy = P.loop ? P.feetY - 70 : P.y - 8;
+  ctx.font = '800 19px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+  const tw = ctx.measureText(th.text).width, bw = tw + 44, bh = 46;
+  const bx = clamp(hx - bw / 2 + 30, 8, W - bw - 8);
+  let by = hy - bh - 46;
+  if (by < 70) by = Math.min(H - bh - 8, hy + 110);        // 上が狭いときはキャラの下に
+  const above = by < hy;
+  ctx.save(); ctx.globalAlpha = a;
+  // もくもくした雲のふきだし
+  ctx.fillStyle = '#fffaf0'; ctx.strokeStyle = '#8a6bb8'; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  const n = Math.max(4, Math.round(bw / 34));
+  for (let i = 0; i <= n; i++) { const px = bx + 14 + (bw - 28) * i / n; ctx.moveTo(px + 15, by + 6); ctx.arc(px, by + 6, 15, 0, Math.PI * 2); ctx.moveTo(px + 15, by + bh - 6); ctx.arc(px, by + bh - 6, 15, 0, Math.PI * 2); }
+  ctx.moveTo(bx + 18, by + bh / 2); ctx.arc(bx + 12, by + bh / 2, 16, 0, Math.PI * 2);
+  ctx.moveTo(bx + bw, by + bh / 2); ctx.arc(bx + bw - 12, by + bh / 2, 16, 0, Math.PI * 2);
+  ctx.stroke(); ctx.fill();
+  ctx.fillRect(bx + 10, by + 2, bw - 20, bh - 4);
+  // キャラの頭へつながる小さな丸
+  const tx = clamp(hx + 6, bx + 20, bx + bw - 20);
+  const steps = above ? [[tx - 4, by + bh + 14, 7], [hx + 2, hy - 18, 4.5]] : [[tx - 4, by - 14, 7], [hx + 2, hy + 4, 4.5]];
+  for (const [cx2, cy2, r] of steps) { ctx.beginPath(); ctx.arc(cx2, cy2, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+  ctx.fillStyle = '#4a2f72'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(th.text, bx + bw / 2, by + bh / 2 + 1);
+  ctx.restore();
+}
 function say(textStr, color = '#fff6e6', dur = 200) {
   if (!L) return;
   if (!L.msgs) L.msgs = [];
@@ -435,7 +467,9 @@ function say(textStr, color = '#fff6e6', dur = 200) {
   L.msgs.push({ text: textStr, color, t: dur, dur });
 }
 const GLOOM_WORDS = ['どうせ むりだよ', 'もう いやだ…', 'だれも わかってくれない', 'ぜんぶ じぶんのせい', 'つかれた…', 'なにも したくない', 'みんな できてるのに'];
-const JOYS = ['あったかいお茶', 'ぐっすり眠れた', '好きな歌を聴いた', '「おはよう」って言えた', 'ひなたぼっこ', 'おいしいごはん', '空がきれいだった', '深呼吸できた', 'ちょっと外に出られた', '「ありがとう」って言われた'];
+// しずく 15 個ごとに浮かぶ、てるしのくんの心の声 (日々の小さなよろこびを思い出す)
+const JOYS = ['あったかいお茶、おいしかったな', 'きのうは ぐっすり眠れたな', 'あの歌、やっぱり好きだな', '「おはよう」って 言えたな', 'ひなたぼっこ、気持ちよかったな',
+              'ごはん、おいしかったな', '空、きれいだったな', '深呼吸したら、ちょっと楽になった', 'ちょっとだけ、外に出られたな', '「ありがとう」って 言われたな'];
 const LANTERN_WORDS = ['ここで ひと息。休んでもいいんだよ', 'だれかに話すと、すこし軽くなる', 'きみのペースで いいんだよ', 'ここまで来た自分を ほめてあげよう'];
 function buildLevel() {
   const LW = 515, LH = 17;
@@ -628,7 +662,7 @@ function addScore(n, x, y) { G.score += n; if (x !== undefined) L.pops.push({ x,
 function addDrop() {
   G.drops++; sfx.drop();
   G.joy = (G.joy || 0) + 1;
-  if (G.joy % 15 === 0 && P && G.mode === 'play' && !(L.msgs && L.msgs.length)) say('「' + JOYS[(G.joy / 15 - 1) % JOYS.length] + '」', '#ffe9c2', 170);
+  if (G.joy % 15 === 0 && P && G.mode === 'play' && !(P.thought && P.thought.t > 0)) heroThink(JOYS[(G.joy / 15 - 1) % JOYS.length]);
   if (G.drops % 100 === 0) oneUp();
 }
 function oneUp() { G.lives++; sfx.oneup(); L.pops.push({ x: P.x, y: P.y - 10, text: '1UP', t: 70, color: '#9dffb0' }); }
@@ -759,7 +793,7 @@ function hurtPlayer() {
     const s = 3 + (i % 3);
     L.items.push({ kind: 'lost', x: cx - 8, y: cy - 8, w: 16, h: 16, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 2, b: 6, t: 200, wait: 30, onGround: false, hitWall: 0 });
   }
-  if (!G.hurtTold) { G.hurtTold = true; say('うまくいかない日もある。拾いなおせばいい', '#cfe6ff', 230); }
+  if (!G.hurtTold) { G.hurtTold = true; heroThink('うまくいかない日も あるよね。拾いなおせばいい', 240); }
   P.charging = false; P.dash = 0;
   P.hurt = 120; P.vy = -6; P.vx = -P.face * 3; P.onGround = false; P.loop = null; P.jumped = false; P.rot = 0;
   sfx.hurt();
@@ -767,6 +801,7 @@ function hurtPlayer() {
 function killPlayer() {
   if (P.dead) return;
   P.charging = false; P.dash = 0;
+  P.thought = null;
   P.dead = true; P.vy = -10; P.vx = 0; P.deadT = 0; P.star = 0; P.loop = null; P.rot = 0;
   G.mode = 'dying'; bgmStop(); sfx.die();
 }
@@ -1996,6 +2031,7 @@ function drawWorld() {
   drawForeground(camX);
   drawLighting(camX);
   drawGloomBubbles(camX);
+  drawHeroThought(camX);
   for (const s of L.pops) {
     ctx.globalAlpha = Math.min(1, s.t / 20);
     text(s.text, s.x - camX, s.y, 15, s.color || '#fff');
