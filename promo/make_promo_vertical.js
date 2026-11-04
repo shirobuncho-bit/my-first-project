@@ -51,6 +51,66 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
     const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
     const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
     const ease = (f, f0, len) => clamp((f - f0) / len, 0, 1);
+    // ===== ポップな演出の部品 =====
+    const POP = ['#ffb347', '#ff7eb6', '#5ec8ff', '#7ee08a', '#ffd84a', '#ffb347'];      // 場面ごとの背景色
+    const POPD = ['#d96a00', '#d6336c', '#1b78c2', '#2b9a48', '#d99a00', '#d96a00'];     // 字幕リボンの色
+    const sceneOf = f => f < S.s2 ? 0 : f < S.s3 ? 1 : f < S.s4 ? 2 : f < S.s5 ? 3 : f < S.end ? 4 : 5;
+    const cutOf = i => [S.title, S.s2, S.s3, S.s4, S.s5, S.end][i];
+    function popBG(vc, f, i) {   // 回るサンバースト + 水玉
+      vc.fillStyle = POP[i]; vc.fillRect(0, 0, 1080, 1920);
+      vc.save(); vc.translate(540, 1000); vc.rotate(f * 0.006);
+      vc.fillStyle = 'rgba(255,255,255,0.24)';
+      for (let k = 0; k < 18; k++) { const a = k / 18 * Math.PI * 2; vc.beginPath(); vc.moveTo(0, 0); vc.arc(0, 0, 1700, a, a + Math.PI / 18); vc.closePath(); vc.fill(); }
+      vc.restore();
+      vc.fillStyle = 'rgba(255,255,255,0.22)';
+      for (let y = -1; y < 22; y++) for (let x = -1; x < 13; x++) {
+        const px = x * 96 + (y % 2) * 48 + (f * 0.8) % 96, py = y * 96 + (f * 0.8) % 96;
+        vc.beginPath(); vc.arc(px, py, 9, 0, Math.PI * 2); vc.fill();
+      }
+      const vg = vc.createRadialGradient(540, 960, 500, 540, 960, 1250);
+      vg.addColorStop(0, 'rgba(255,255,255,0)'); vg.addColorStop(1, 'rgba(120,40,80,0.25)');
+      vc.fillStyle = vg; vc.fillRect(0, 0, 1080, 1920);
+    }
+    // ずっと舞っている紙ふぶき・星・ハート
+    const CONF = Array.from({ length: 46 }, (_, i) => ({ x: hash(i * 2.1) * 1080, y: hash(i * 3.3) * 2000, sp: 2 + hash(i * 4.7) * 4, w: hash(i * 5.9) * 6.28, kind: i % 4,
+      c: ['#ffffff', '#ff5d8f', '#ffd23f', '#5ec8ff', '#8a5cff', '#7ee08a'][i % 6], r: 9 + hash(i * 7.1) * 10 }));
+    function shape(vc, kind, r) {
+      vc.beginPath();
+      if (kind === 0) vc.rect(-r, -r * 0.45, r * 2, r * 0.9);
+      else if (kind === 1) { for (let k = 0; k < 10; k++) { const a = k * Math.PI / 5 - Math.PI / 2, rr2 = k % 2 ? r * 0.45 : r; vc.lineTo(Math.cos(a) * rr2, Math.sin(a) * rr2); } vc.closePath(); }
+      else if (kind === 2) vc.arc(0, 0, r * 0.7, 0, Math.PI * 2);
+      else { vc.moveTo(0, r * 0.8); vc.bezierCurveTo(-r * 1.4, -r * 0.2, -r * 0.5, -r * 1.2, 0, -r * 0.35); vc.bezierCurveTo(r * 0.5, -r * 1.2, r * 1.4, -r * 0.2, 0, r * 0.8); }
+      vc.fill();
+    }
+    function confetti(vc, f) {
+      for (const c of CONF) {
+        const y = (c.y + f * c.sp) % 2040 - 60, x = c.x + Math.sin(f * 0.05 + c.w) * 40;
+        vc.save(); vc.translate(x, y); vc.rotate(f * 0.06 + c.w); vc.fillStyle = c.c; vc.globalAlpha = 0.9; shape(vc, c.kind, c.r); vc.restore();
+      }
+    }
+    // 場面の切り替えで中央からはじける紙ふぶき
+    function burst(vc, f) {
+      for (const cf of [S.s2, S.s3, S.s4, S.s5, S.end]) {
+        const t = f - cf; if (t < 0 || t > 34) continue;
+        for (let k = 0; k < 34; k++) {
+          const a = hash(k * 1.7 + cf) * Math.PI * 2, sp = 18 + hash(k * 2.9 + cf) * 22;
+          const x = 540 + Math.cos(a) * sp * t, y = 980 + Math.sin(a) * sp * t + 0.9 * t * t;
+          vc.save(); vc.globalAlpha = clamp(1 - t / 34, 0, 1); vc.translate(x, y); vc.rotate(t * 0.3 + k);
+          vc.fillStyle = ['#ffffff', '#ff5d8f', '#ffd23f', '#5ec8ff', '#8a5cff'][k % 5]; shape(vc, k % 4, 14); vc.restore();
+        }
+      }
+    }
+    // 「NEW!」のギザギザシール
+    function sticker(vc, x, y, label, k, rot) {
+      if (k <= 0) return;
+      const e = easeOutBack(k);
+      vc.save(); vc.translate(x, y); vc.rotate(rot + Math.sin(__t * 6) * 0.06); vc.scale(e, e);
+      vc.fillStyle = '#ff3d6e'; vc.beginPath();
+      for (let i = 0; i < 28; i++) { const a = i / 28 * Math.PI * 2, r = i % 2 ? 78 : 96; vc.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+      vc.closePath(); vc.fill(); vc.strokeStyle = '#fff'; vc.lineWidth = 6; vc.stroke();
+      text(label, 0, 2, 44, '#ffffff', 'center', '#a3002f');
+      vc.restore();
+    }
     // 字幕: 大きく傾いた状態からポンと飛び込んでくる (1 行ずつ時間差)
     function caption(str, f, f0, f1) {
       if (f < f0 || f > f1) return;
@@ -61,8 +121,15 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
         const sc = (1 + (1 - e) * 1.4) * (1 + (1 - out) * 0.25);
         ctx.save();
         ctx.globalAlpha = Math.min(1, t * 2) * out;
-        ctx.translate(540, GY + GH + 110 + i * 82); ctx.rotate((1 - t) * (i % 2 ? 9 : -9) * Math.PI / 180); ctx.scale(sc, sc);
-        text(ln, 0, 0, 66, '#ffffff', 'center', '#2a1640');
+        ctx.translate(540, GY + GH + 112 + i * 112); ctx.rotate((1 - t) * (i % 2 ? 9 : -9) * Math.PI / 180); ctx.scale(sc, sc);
+        const sc2 = sceneOf(f);
+        ctx.font = '900 66px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+        const tw = ctx.measureText(ln).width + 80;
+        ctx.rotate((i % 2 ? 2.5 : -2.5) * Math.PI / 180);
+        ctx.fillStyle = 'rgba(60,20,60,0.25)'; rr(-tw / 2 + 8, -48 + 10, tw, 96, 48); ctx.fill();
+        ctx.fillStyle = POPD[sc2]; rr(-tw / 2, -48, tw, 96, 48); ctx.fill();
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 7; ctx.stroke();
+        text(ln, 0, 2, 66, '#ffffff', 'center', 'rgba(40,10,40,0.85)');
         ctx.restore();
       });
     }
@@ -72,50 +139,52 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
     }
     function endCard(f) {
       const t = f - S.end;
-      ctx.fillStyle = `rgba(12,6,32,${0.55 * ease(f, S.end, 10)})`; ctx.fillRect(0, 0, 1080, 1920);
       // 札: 上から落ちてくる
       let k = ease(f, S.end, 12), e = easeOutBack(k);
-      ctx.save(); ctx.globalAlpha = Math.min(1, k * 2); ctx.translate(0, 470 - (1 - e) * 500); ctx.scale(2.6, 2.6); drawAnniversary(540 / 2.6); drawTitleSparkles(540 / 2.6); ctx.restore();
-      // ロゴ: 大きく回転しながら着地
+      ctx.save(); ctx.globalAlpha = Math.min(1, k * 2); ctx.translate(0, 330 - (1 - e) * 500); ctx.scale(2.6, 2.6); drawAnniversary(540 / 2.6); drawTitleSparkles(540 / 2.6); ctx.restore();
+      // ロゴ: 大きく回転しながら着地、ゆらゆら
       k = ease(f, S.end + 5, 14); e = easeOutBack(k);
       if (k > 0) {
-        ctx.save(); ctx.globalAlpha = Math.min(1, k * 2); ctx.translate(540, 760); ctx.rotate((1 - k) * -14 * Math.PI / 180);
-        const sc = (1 + (1 - e) * 2) * (1 + Math.sin(t * 0.18) * 0.015); ctx.scale(sc, sc);
-        text('てるしのくん', 0, -70, 128, '#ffc61a', 'center', '#2a1640');
-        text('RUN', 0, 70, 150, '#ffc61a', 'center', '#2a1640');
+        ctx.save(); ctx.globalAlpha = Math.min(1, k * 2); ctx.translate(540, 600); ctx.rotate((1 - k) * -14 * Math.PI / 180 + Math.sin(t * 0.12) * 0.03);
+        const sc = (1 + (1 - e) * 2) * (1 + Math.sin(t * 0.18) * 0.02); ctx.scale(sc, sc);
+        text('てるしのくん', 0, -70, 132, '#ffd23f', 'center', '#5a1f00');
+        text('RUN', 0, 72, 160, '#ffffff', 'center', '#5a1f00');
         ctx.restore();
       }
-      k = ease(f, S.end + 14, 10);
+      k = ease(f, S.end + 12, 10);
       ctx.save(); ctx.globalAlpha = k; ctx.translate(0, (1 - k) * 30);
-      text('真夜中から、夜明けまで', 540, 930, 46, '#ffe6d0', 'center');
-      text('駆けぬけろ！', 540, 992, 46, '#ffe6d0', 'center');
+      text('真夜中から、夜明けまで駆けぬけろ！', 540, 805, 44, '#5a1f00', 'center', '#ffffff');
       ctx.restore();
-      // てるしのくん 2 人: 左右からくるっと回って飛び込む
-      k = ease(f, S.end + 16, 14); e = easeOutBack(k);
-      for (const [side, ph] of [[-1, 0], [1, 1.4]]) {
-        if (k <= 0) break;
-        const x = 540 + side * 210 + side * (1 - e) * 700, y = 1300 - Math.abs(Math.sin(t * 0.25 + ph)) * 20 * k;
-        ctx.save(); ctx.globalAlpha = Math.min(1, k * 2); ctx.translate(x, y); ctx.rotate((1 - k) * side * 2 * Math.PI);
-        drawHero(0, 0, { scale: 3, face: -side, walk: 0, happy: true, glow: true });
+      // タイトルのイラスト: 下からぴょんと飛び出して弾む
+      k = ease(f, S.end + 14, 14); e = easeOutBack(k);
+      if (k > 0 && TITLE_ART.naturalWidth) {
+        const aw = 980, ah = aw * TITLE_ART.naturalHeight / TITLE_ART.naturalWidth;
+        const hop = Math.abs(Math.sin(t * 0.22)) * 18 * k;
+        ctx.save(); ctx.translate(540, 1100 + (1 - e) * 600 - hop); ctx.rotate(Math.sin(t * 0.15) * 0.025);
+        const gl = ctx.createRadialGradient(0, 0, 40, 0, 0, aw * 0.6);
+        gl.addColorStop(0, 'rgba(255,255,255,0.75)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = gl; ctx.fillRect(-aw * 0.7, -ah, aw * 1.4, ah * 2);
+        ctx.drawImage(TITLE_ART, -aw / 2, -ah / 2, aw, ah);
         ctx.restore();
       }
-      // 今すぐプレイ: ポンと出て、ゆっくり脈打つ
-      k = ease(f, S.end + 26, 10); e = easeOutBack(k);
+      // 今すぐプレイ: ポンと出て、脈打つ
+      k = ease(f, S.end + 24, 10); e = easeOutBack(k);
       if (k > 0) {
-        const sc = e * (1 + Math.sin(t * 0.3) * 0.035 * k);
-        ctx.save(); ctx.translate(540, 1415); ctx.scale(sc, sc);
-        const g = ctx.createLinearGradient(0, -55, 0, 55);
-        g.addColorStop(0, 'rgba(255,214,120,0.97)'); g.addColorStop(1, 'rgba(230,150,60,0.97)');
-        ctx.fillStyle = g; rr(-400, -55, 800, 110, 55); ctx.fill();
-        ctx.strokeStyle = '#fff6e0'; ctx.lineWidth = 5; ctx.stroke();
-        text('スマホ・PCで 今すぐプレイ！', 0, 1, 52, '#2a1640', 'center', 'rgba(255,255,255,0.6)');
+        const sc = e * (1 + Math.sin(t * 0.3) * 0.04 * k);
+        ctx.save(); ctx.translate(540, 1450); ctx.rotate(-0.03); ctx.scale(sc, sc);
+        ctx.fillStyle = 'rgba(90,20,60,0.3)'; rr(-400, -55 + 12, 800, 110, 55); ctx.fill();
+        ctx.fillStyle = '#ff3d6e'; rr(-400, -55, 800, 110, 55); ctx.fill();
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 7; ctx.stroke();
+        text('スマホ・PCで 今すぐプレイ！', 0, 1, 52, '#ffffff', 'center', '#8a0026');
         ctx.restore();
       }
-      k = ease(f, S.end + 32, 10);
+      k = ease(f, S.end + 30, 10);
       ctx.save(); ctx.globalAlpha = k;
-      text('shirobuncho-bit.github.io', 540, 1530, 36, '#cfd8ff', 'center');
-      text('/my-first-project/game/', 540, 1578, 36, '#cfd8ff', 'center');
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'; rr(150, 1532, 780, 104, 30); ctx.fill();
+      text('shirobuncho-bit.github.io', 540, 1562, 36, '#5a1f00', 'center', 'rgba(255,255,255,0)');
+      text('/my-first-project/game/', 540, 1606, 36, '#5a1f00', 'center', 'rgba(255,255,255,0)');
       ctx.restore();
+      sticker(ctx, 880, 1000, '30th!', ease(f, S.end + 20, 10), -0.2);
     }
     // 1 コマ分進めて描く
     window.__frame = f => {
@@ -139,12 +208,12 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       const vc = __V.vctx; ctx = vc;
       const d = G.mode === 'title' ? 0 : dawnLevel();
       vc.setTransform(1, 0, 0, 1, 0, 0);
-      vc.filter = 'blur(28px) brightness(0.55) saturate(1.2)';
-      vc.drawImage(cv, -420, -80, 1920, 2080);
-      vc.filter = 'none';
-      const bg = vc.createLinearGradient(0, 0, 0, 1920);
-      bg.addColorStop(0, rgba(keyed(SKY_KEYS, d, 1), 0.65)); bg.addColorStop(0.5, 'rgba(10,6,28,0.15)'); bg.addColorStop(1, rgba(keyed(SKY_KEYS, d, 1), 0.75));
-      vc.fillStyle = bg; vc.fillRect(0, 0, 1080, 1920);
+      const si = sceneOf(f), lt0 = f - cutOf(si);
+      if (si > 0 && lt0 < 12) {   // 新しい色が中央から丸く広がる
+        popBG(vc, f, si - 1);
+        vc.save(); vc.beginPath(); vc.arc(540, 980, easeOutCubic(lt0 / 12) * 1300, 0, Math.PI * 2); vc.clip(); popBG(vc, f, si); vc.restore();
+      } else popBG(vc, f, si);
+      confetti(vc, f);
       if (f < S.end) {
         // 上: 30 周年の札とロゴ (2 場面目でポンと登場、あとはゆっくり呼吸)
         if (f >= S.s2) {
@@ -186,12 +255,12 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
         const fcy = clamp(lerp(cv.height / 2, hy * 2, foc), fh / 2, cv.height - fh / 2);
         vc.save();
         vc.translate(540 + sx0, GY + GH / 2 + sy0); vc.rotate(rot * Math.PI / 180); vc.scale(cs, cs);
-        vc.save(); vc.shadowColor = 'rgba(255,200,100,0.6)'; vc.shadowBlur = 44; rr(-520, -GH / 2, 1040, GH, 28); vc.fillStyle = '#000'; vc.fill(); vc.restore();
+        vc.save(); vc.shadowColor = 'rgba(80,20,60,0.45)'; vc.shadowBlur = 30; vc.shadowOffsetY = 14; rr(-520, -GH / 2, 1040, GH, 28); vc.fillStyle = '#000'; vc.fill(); vc.restore();
         vc.save(); rr(-520, -GH / 2, 1040, GH, 28); vc.clip();
         vc.drawImage(cv, fcx - fw / 2, fcy - fh / 2, fw, fh, -520, -GH / 2, 1040, GH);
         if (f >= S.s2 && lt < 4) { vc.fillStyle = `rgba(255,255,255,${0.7 * (1 - lt / 4)})`; vc.fillRect(-520, -GH / 2, 1040, GH); }
         vc.restore();
-        vc.strokeStyle = 'rgba(255,214,140,0.9)'; vc.lineWidth = 5; rr(-520, -GH / 2, 1040, GH, 28); vc.stroke();
+        vc.strokeStyle = '#ffffff'; vc.lineWidth = 12; rr(-520, -GH / 2, 1040, GH, 28); vc.stroke();
         vc.restore();
         // 下: 字幕
         if (f >= S.s2) {
@@ -201,10 +270,12 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
           else caption('めざすは、日の出。', f, S.s5 + 10, S.end - 4);
         } else {
           caption('30周年記念？ゲーム、\n登場！', f, 16, S.s2 - 3);
+          sticker(vc, 900, GY + 40, 'NEW!', ease(f, 26, 10), 0.25);
         }
       } else endCard(f);
+      burst(vc, f);
       // はじめは黒から、締めの前に白く光る、最後は暗転
-      if (f < 10) { vc.fillStyle = `rgba(0,0,0,${1 - f / 10})`; vc.fillRect(0, 0, 1080, 1920); }
+      if (f < 8) { vc.fillStyle = `rgba(255,255,255,${1 - f / 8})`; vc.fillRect(0, 0, 1080, 1920); }
       if (f >= S.end - 5 && f < S.end + 6) { vc.fillStyle = `rgba(255,250,235,${1 - Math.abs(f - S.end) / 6})`; vc.fillRect(0, 0, 1080, 1920); }
       ctx = __V.gameCtx;
       return __V.VC.toDataURL('image/jpeg', 0.93);
@@ -231,7 +302,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
     // BGM
     let t = 0.25, step = 0;
     while (t < SEC) {
-      const d = __dawn[Math.min(__dawn.length - 1, Math.floor(t * FPS))];
+      const d = Math.max(0.72, __dawn[Math.min(__dawn.length - 1, Math.floor(t * FPS))]);   // 最初からドラム入りの元気な編成
       const st = 60 / (108 + d * 30) / 4;
       playStep(step++, t, d, st);
       t += st;
@@ -245,7 +316,8 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       __tOff = e.t; try { sfx[e.k](...e.a); } catch (err) { }
     }
     // 動画の演出に合わせた音: 場面の切り替えで「シュッ」、締めの画面で要素が出るたびに「ポン」
-    for (const f0 of [__S.s2, __S.s3, __S.s4, __S.s5]) { __tOff = f0 / FPS - 0.06; noise({ d: 0.28, v: 0.14, f: 500, f2: 5000, q: 1.2 }); }
+    for (const f0 of [__S.s2, __S.s3, __S.s4, __S.s5]) { __tOff = f0 / FPS - 0.06; noise({ d: 0.28, v: 0.14, f: 500, f2: 5000, q: 1.2 }); __tOff = f0 / FPS; voice({ f: 520, f2: 1560, d: 0.08, r: 0.1, type: 'sine', v: 0.16 }); [84, 88, 91].forEach((m, i) => bell(m, i * 0.04, 0.03, 0.35)); }
+    __tOff = 26 / FPS; voice({ f: 400, f2: 1400, d: 0.07, r: 0.1, type: 'sine', v: 0.16 });
     __tOff = __S.end / FPS - 0.1; noise({ d: 0.6, v: 0.12, f: 300, f2: 6000, q: 0.8, rev: 0.4 });
     [[12, 70], [19, 74], [30, 77], [36, 79]].forEach(([df, m]) => { __tOff = (__S.end + df) / FPS; voice({ f: midi(m), f2: midi(m + 12), d: 0.06, r: 0.12, type: 'sine', v: 0.14 }); bell(m + 12, 0.02, 0.03, 0.3); });
     // ためダッシュの「ウィーン」

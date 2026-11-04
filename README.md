@@ -7,6 +7,7 @@
 - **遊ぶ**: GitHub Pages を有効にすると https://shirobuncho-bit.github.io/my-first-project/game/ で遊べます（ローカルでは `game/index.html` をブラウザで開くだけ）
 - **操作**: ←→ 移動 / Space・Z ジャンプ / Shift・X 長押しでためて、はなすとスーパーダッシュ / P ポーズ / M 音のオン・オフ
 - **スマホ**: 画面のボタンで操作できます（縦持ちでも横持ちでも OK）
+- **キャラ**: スタートを押すと、てるしのくん / ワニ からえらべます（えらんだキャラは次回も覚えています）
 - **評価**: クリアタイムとスコアそれぞれに S〜D のランク、2 つを合わせた総合ランク
 
 ### ファイル
@@ -15,4 +16,7 @@
 |---|---|
 | `game/index.html` | ゲーム本体（主人公の画像も埋め込み済み） |
 | `game/assets/hero-original.png` | 主人公の元イラスト |
+| `game/assets/croc-original.webp` / `croc-smile.webp` | えらべるキャラ「ワニ」の元イラスト（ふつう / 笑顔。笑顔の目と口の色を笑顔版から取る） |
+| `game/tools/make_croc.py` | ワニのイラストを頭・体・腕・足・しっぽに切り分けて `index.html` に埋め込むスクリプト（ゲーム中の動くワニ） |
+| `game/tools/make_croc_still.py` | キャラえらび画面用の、切れ目の出ないひとかたまりのワニを作るスクリプト |
 | `game/tools/make_sprites.py` | 元イラストから主人公のパーツ画像を作って `index.html` に埋め込むスクリプト |
