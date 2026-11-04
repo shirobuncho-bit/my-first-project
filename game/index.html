@@ -168,7 +168,7 @@ function press(k) { if (!keys[k]) pressed[k] = true; keys[k] = true; initAudio()
 function release(k) { keys[k] = false; }
 addEventListener('keydown', e => { const k = mapKey(e.code); if (!k) return; e.preventDefault(); press(k); });
 addEventListener('keyup', e => { const k = mapKey(e.code); if (!k) return; e.preventDefault(); release(k); });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; document.querySelectorAll('#touch button.on').forEach(b => b.classList.remove('on')); });
 document.querySelectorAll('#touch button').forEach(b => {
   const k = b.dataset.k;
   const on = e => { e.preventDefault(); b.classList.add('on'); press(k); if (k === 'jump') pressed.start = true; };
@@ -177,8 +177,32 @@ document.querySelectorAll('#touch button').forEach(b => {
   b.addEventListener('pointerup', off);
   b.addEventListener('pointercancel', off);
   b.addEventListener('pointerleave', off);
+  b.addEventListener('lostpointercapture', off);
   b.addEventListener('contextmenu', e => e.preventDefault());
 });
+// ボタンの「押しっぱなし」防止:
+// 指を離したのにボタンの pointerup が届かないことがある (iOS の画面端スワイプ・通知・全画面切替など) ので、
+// 画面全体の touchend / touchcancel のたびに、実際に指が乗っているボタンだけを押された状態に戻す
+function releaseAll() {
+  for (const k in keys) keys[k] = false;
+  document.querySelectorAll('#touch button.on').forEach(b => b.classList.remove('on'));
+}
+function syncTouches(e) {
+  const held = new Set();
+  for (const t of e.touches) {
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const b = el && el.closest && el.closest('#touch button');
+    if (b) held.add(b.dataset.k);
+  }
+  document.querySelectorAll('#touch button').forEach(b => {
+    const k = b.dataset.k;
+    if (!held.has(k) && (keys[k] || b.classList.contains('on'))) { b.classList.remove('on'); release(k); }
+  });
+}
+addEventListener('touchend', syncTouches, { capture: true, passive: true });
+addEventListener('touchcancel', syncTouches, { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+addEventListener('pagehide', releaseAll);
 // 画面上のボタン (一時停止・メニュー) をタップ/クリック。ボタン以外をタップしたらスタート扱い
 const UI = [];   // 描画のたびに作り直す { x, y, w, h, act }
 cv.addEventListener('pointerdown', e => {
@@ -610,6 +634,7 @@ function startLevel() {
   P = makePlayer(sx);
   G.drops = 0;
   G.mode = 'play'; G.paused = false;
+  releaseAll();   // スタート・リスタート時は入力をリセット (押しっぱなしで勝手に動かないように)
   L.camX = clamp(P.x - W * 0.4, 0, L.LW * T - W);
   L.prog = progressOf(P.x);
   L.zone = ZONES.findLastIndex(z => sx >= z.x) - 1;   // 開始ゾーンの看板を出す
