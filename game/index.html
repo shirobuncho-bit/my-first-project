@@ -94,6 +94,19 @@ const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s
 // ---------- 画面サイズ調整 ----------
 const lightCv = document.createElement('canvas');
 const lctx = lightCv.getContext('2d');
+// 古いブラウザ (iOS 15 以前の Safari など) には角丸の描画命令がないので補う
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    let [tl, tr, br, bl] = Array.isArray(r) ? (r.length === 1 ? [r[0], r[0], r[0], r[0]] : r.length === 2 ? [r[0], r[1], r[0], r[1]] : [r[0], r[1], r[2] ?? r[1], r[3] ?? r[1]]) : [r, r, r, r];
+    const m = Math.min(w, h) / 2; tl = Math.min(tl, m); tr = Math.min(tr, m); br = Math.min(br, m); bl = Math.min(bl, m);
+    this.moveTo(x + tl, y); this.lineTo(x + w - tr, y); this.arcTo(x + w, y, x + w, y + tr, tr);
+    this.lineTo(x + w, y + h - br); this.arcTo(x + w, y + h, x + w - br, y + h, br);
+    this.lineTo(x + bl, y + h); this.arcTo(x, y + h, x, y + h - bl, bl);
+    this.lineTo(x, y + tl); this.arcTo(x, y, x + tl, y, tl); this.closePath();
+  };
+}
+// 古いブラウザにはない findLastIndex の代わり
+function lastIndexWhere(arr, fn) { for (let i = arr.length - 1; i >= 0; i--) if (fn(arr[i])) return i; return -1; }
 function viewSize() {
   const v = window.visualViewport;
   return v ? [Math.round(v.width), Math.round(v.height)] : [innerWidth, innerHeight];
@@ -201,7 +214,7 @@ function syncTouches(e) {
 }
 addEventListener('touchend', syncTouches, { capture: true, passive: true });
 addEventListener('touchcancel', syncTouches, { capture: true, passive: true });
-document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { releaseAll(); if (G.mode === 'play' && !G.paused) { G.paused = true; G.psel = 0; } } });
 addEventListener('pagehide', releaseAll);
 // 画面上のボタン (一時停止・メニュー) をタップ/クリック。ボタン以外をタップしたらスタート扱い
 const UI = [];   // 描画のたびに作り直す { x, y, w, h, act }
@@ -516,7 +529,7 @@ function buildLevel() {
   E(149); E(159, 'thorn');
   fill(172, 178, 12, 13, '#'); drops(172, 178, 10);
   E(176, 'gloom', 11);
-  ground(183, 222);
+  ground(181, 222);
   // ZONE 3 あおの刻の渓谷 — 坂のジャンプ台 → ループ → 浮き岩 → 崖 → 起伏
   upSteep(186, 14, 3); plateau(189, 195, 12); downSteep(196, 12, 3);
   drops(189, 195, 10);
@@ -527,7 +540,7 @@ function buildLevel() {
   PF(235, 10, 3, 'y', 3, 1.0);
   drops(235, 237, 5);
   PF(238, 12, 3, 'x', 0.8, 1.4, 1.5);
-  ground(241, 299);
+  ground(240, 299);
   set(252, 14, 'K');
   plateau(257, 258, 12); plateau(259, 266, 9); drops(260, 265, 7);
   E(263, 'gloom', 8);
@@ -574,9 +587,9 @@ setTimeout(() => { G.high = loadNum('terushino-run-high'); try { G.bestRank = lo
 // ---------- 評価: タイムとスコアそれぞれにランク、2 つを合わせて総合ランク ----------
 const RANKS = ['D', 'C', 'B', 'A', 'S'];
 const RANK_COL = { S: '#ffd84a', A: '#ff8fb1', B: '#7fd8ff', C: '#a8e6a0', D: '#c9c0dd' };
-const TIME_LIMITS = [42, 55, 75, 105];           // 秒: これ以下なら S / A / B / C
+const TIME_LIMITS = [38, 50, 70, 100];           // 秒: これ以下なら S / A / B / C
 function timeRank(f) { const s = f / 60; const i = TIME_LIMITS.findIndex(l => s <= l); return i < 0 ? 0 : 4 - i; }
-function scoreRank(sc) { const r = sc / L.maxScore; return r >= 0.62 ? 4 : r >= 0.46 ? 3 : r >= 0.34 ? 2 : r >= 0.18 ? 1 : 0; }
+function scoreRank(sc) { const r = sc / L.maxScore; return r >= 0.66 ? 4 : r >= 0.5 ? 3 : r >= 0.36 ? 2 : r >= 0.2 ? 1 : 0; }
 function finishRun() {
   const tr = timeRank(G.final), sr = scoreRank(G.score);
   const total = Math.floor((tr + sr) / 2);
@@ -609,7 +622,7 @@ function loadLevel() {
   // スコア評価の基準: ステージで取れる点のおおよその満点
   let drops = 0, jars = 0, suns = 0, clouds = 0;
   for (const row of L.grid) for (const c of row) { if (c === 'o') drops++; else if (c === 'Q') jars++; else if (c === 'M') suns++; else if (c === 'B') clouds++; }
-  L.maxScore = drops * 110 + jars * 700 + suns * 1000 + clouds * 50 + L.enemies.length * 150 + L.loops.length * 1000;
+  L.maxScore = drops * 110 + jars * 700 + suns * 1000 + clouds * 50 + L.enemies.length * 150 + L.loops.length * 2000 + 2000;   // ループは PERFECT + 連続 1 回分
 }
 const HERO_H = 78;                // 主人公の見た目の身長 (px)
 function makePlayer(tx) {
@@ -624,7 +637,7 @@ function makeEnemy(d) {
 }
 function newGame() {
   G.score = 0; G.drops = 0; G.lives = 3; G.cpi = -1;
-  G.clock = 0; G.newRecord = false;
+  G.clock = 0; G.newRecord = false; G.dropTotal = 0;
   startLevel();
   G.mode = 'ready'; G.readyT = 120;   // READY → GO! でタイム計測スタート
 }
@@ -637,7 +650,7 @@ function startLevel() {
   releaseAll();   // スタート・リスタート時は入力をリセット (押しっぱなしで勝手に動かないように)
   L.camX = clamp(P.x - W * 0.4, 0, L.LW * T - W);
   L.prog = progressOf(P.x);
-  L.zone = ZONES.findLastIndex(z => sx >= z.x) - 1;   // 開始ゾーンの看板を出す
+  L.zone = lastIndexWhere(ZONES, z => sx >= z.x) - 1;   // 開始ゾーンの看板を出す
   bgmStart();
 }
 
@@ -650,9 +663,10 @@ function tile(tx, ty) {
 }
 const solidAt = (tx, ty) => SOLID.has(tile(tx, ty));
 function addScore(n, x, y) { G.score += n; if (x !== undefined) L.pops.push({ x, y, text: String(n), t: 50 }); }
-function addDrop() {
-  G.drops++; sfx.drop();
-  if (G.drops % 100 === 0) oneUp();
+function addDrop(quiet) {
+  G.drops++; if (!quiet) sfx.drop();
+  G.dropTotal = (G.dropTotal || 0) + 1;
+  if (G.dropTotal % 100 === 0) oneUp();
 }
 function oneUp() { G.lives++; sfx.oneup(); L.pops.push({ x: P.x, y: P.y - 10, text: '1UP', t: 70, color: '#9dffb0' }); }
 function puff(cx, cy, n = 7, color = '#fff', size = 1) {
@@ -738,7 +752,7 @@ function bumpTile(tx, ty) {
   if (t === 'Q') {
     L.grid[ty][tx] = 'U'; L.bumps.set(key, 10);
     L.items.push({ kind: 'droppop', x: tx * T + 8, y: ty * T - 24, vy: -9, t: 28 });
-    for (let i = 0; i < 5; i++) addDrop();
+    for (let i = 0; i < 5; i++) addDrop(i > 0);   // 音は 1 回だけ
     addScore(200, tx * T + 4, ty * T - 30);
   } else if (t === 'M') {
     L.grid[ty][tx] = 'U'; L.bumps.set(key, 10);
@@ -969,7 +983,7 @@ function updatePlayer() {
     }
   }
   // ゾーン看板
-  const zi = ZONES.findLastIndex(z => p.x >= z.x * T);
+  const zi = lastIndexWhere(ZONES, z => p.x >= z.x * T);
   if (zi > L.zone) { L.zone = zi; L.banner = { ...ZONES[zi], n: zi + 1, t: 200 }; if (zi > 0) sfx.zone(); }
   // 落下
   if (p.y > L.LH * T + 40) { killPlayer(); return; }
