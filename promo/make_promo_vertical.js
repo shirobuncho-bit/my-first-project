@@ -278,7 +278,7 @@ const FPS = 30, SEC = 16.5, N = Math.round(FPS * SEC);
           else if (f < S.sel) caption('ためて、はなして、\nスーパーダッシュ！', f, S.s3 + 4, S.sel - 4);
           else if (f < S.s4) caption('ワニでも\nあそべる！', f, S.sel + 4, S.s4 - 3);
           else if (f < S.s5) caption('ループを決めて、\nハイスコア！', f, S.s4 + 4, S.s5 - 4);
-          else caption('ゴールは…\nドーナツ！？', f, S.s5 + 8, S.end - 4);
+          else caption('それぞれのゴールを\n目指して…！', f, S.s5 + 8, S.end - 4);
         } else {
           caption('30周年記念？ゲーム、\n登場！', f, 16, S.s2 - 3);
           sticker(vc, 900, GY + 40, 'NEW!', ease(f, 26, 10), 0.25);
