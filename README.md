@@ -17,5 +17,5 @@
 | `game/index.html` | ゲーム本体（主人公の画像も埋め込み済み） |
 | `game/assets/hero-original.png` | 主人公の元イラスト |
 | `game/assets/croc-original.webp` | えらべるキャラ「ワニ」の元イラスト |
-| `game/tools/make_croc.py` | ワニのイラストからパーツ画像を作って `index.html` に埋め込むスクリプト（頭を大きくしててるしのくんと同じ頭身に） |
+| `game/tools/make_croc.py` | ワニのイラストからパーツ画像を作って `index.html` に埋め込むスクリプト（頭を少し大きくして、イラストのバランスを保ちつつ頭身を近づける） |
 | `game/tools/make_sprites.py` | 元イラストから主人公のパーツ画像を作って `index.html` に埋め込むスクリプト |

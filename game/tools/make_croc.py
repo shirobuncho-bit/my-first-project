@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / 'assets' / 'croc-original.webp'
 HTML = ROOT / 'index.html'
 OUT_SCALE = 0.3
-HEAD_SCALE = 1.5              # 頭を大きくして、てるしのくんと同じくらいの頭身に
+HEAD_SCALE = 1.18             # 頭を少しだけ大きく (イラストの体のバランスを保ちつつ、てるしのくんに近い頭身に)
 NECK = (440, 380)             # 頭を大きくするときの基準点 (首のまん中)
 FEET_CX = 470                 # 足もとの中心 x
 GREEN = (82, 126, 66)
@@ -89,7 +89,12 @@ def rgba_of(src_rgb, m):
     out[..., 3] = np.where(m, img[..., 3], 0)
     return out
 
+# 腕を振ったときに体と腕のあいだに隙間が見えないよう、体の内側を塗りつぶした下じき (線なし・少し小さめ)
+under_m = nd.binary_erosion(nd.binary_fill_holes(torso | armL_core | armR_core) & (YY > 380), iterations=12)
+under_rgb = np.zeros_like(rgb); under_rgb[:] = GREEN
+
 parts = {
+    'under': (rgba_of(under_rgb, under_m), 1.0),
     'tail': (rgba_of(rgb, tail), 1.0),
     'armL': (rgba_of(rgb, armL), 1.0),
     'armR': (rgba_of(rgb, armR), 1.0),
