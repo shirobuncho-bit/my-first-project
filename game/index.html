@@ -309,6 +309,12 @@ const sfx = {
   ready: () => bell(84, 0, 0.05, 0.25),
   record: () => [76, 79, 84, 88, 86, 91].forEach((m, i) => { voice({ f: midi(m), t: i * 0.11, d: 0.1, r: 0.2, type: 'square', v: 0.035, n: 2, det: 8, cut: 3200, rev: 0.4 }); bell(m + 12, i * 0.11, 0.02, 0.3); }),
   zone: () => { [72, 79, 84, 88].forEach((m, i) => bell(m, i * 0.12, 0.045, 1.0, 0.6)); voice({ f: midi(48), d: 0.4, r: 1.2, type: 'sawtooth', v: 0.02, n: 2, det: 10, cut: 800, rev: 0.6 }); },
+  loop: (perfect, chain) => {
+    const base = 72 + Math.min(chain - 1, 4) * 2;
+    [0, 4, 7, 12, 16].forEach((d, i) => { voice({ f: midi(base + d), t: i * 0.05, d: 0.08, r: 0.2, type: 'square', v: 0.035, n: 2, det: 8, cut: 3500, rev: 0.35 }); });
+    if (perfect) [19, 24].forEach((d, i) => bell(base + d, 0.28 + i * 0.07, 0.05, 0.6));
+    noise({ d: 0.5, v: 0.1, f: 800, f2: 5000, q: 1.5, rev: 0.2 });
+  },
   rank: () => { voice({ f: 80, f2: 40, d: 0.2, r: 0.3, type: 'sine', v: 0.22 }); noise({ d: 0.4, v: 0.12, type: 'lowpass', f: 4000, f2: 400, rev: 0.4 }); },
 };
 // ためダッシュ中の「ウィーン」という持続音
@@ -579,7 +585,7 @@ function loadLevel() {
   // スコア評価の基準: ステージで取れる点のおおよその満点
   let drops = 0, jars = 0, suns = 0, clouds = 0;
   for (const row of L.grid) for (const c of row) { if (c === 'o') drops++; else if (c === 'Q') jars++; else if (c === 'M') suns++; else if (c === 'B') clouds++; }
-  L.maxScore = drops * 110 + jars * 700 + suns * 1000 + clouds * 50 + L.enemies.length * 150;
+  L.maxScore = drops * 110 + jars * 700 + suns * 1000 + clouds * 50 + L.enemies.length * 150 + L.loops.length * 1000;
 }
 const HERO_H = 78;                // 主人公の見た目の身長 (px)
 function makePlayer(tx) {
@@ -766,14 +772,34 @@ function updatePlats() {
 }
 
 // ループ (ひかりの輪) の中を走る
+// ループのごほうび: 一回転で 1000 点、勢いよく (速さ 10 以上) 入ると PERFECT で 2000 点。
+// 続けて回る (3 秒以内) と 2 倍、3 倍…
+function loopReward(l, entry) {
+  const perfect = entry >= 10;
+  L.loopChain = G.clock - (L.lastLoop ?? -9999) < 180 ? (L.loopChain || 1) + 1 : 1;
+  L.lastLoop = G.clock;
+  const pts = (perfect ? 2000 : 1000) * L.loopChain;
+  addScore(pts);
+  l.flash = 40;
+  L.loopBanner = { title: perfect ? 'PERFECT LOOP!' : 'LOOP!', pts, chain: L.loopChain, perfect, t: 130 };
+  sfx.loop(perfect, L.loopChain);
+  for (let k = 0; k < 20; k++) {
+    const a = k / 20 * Math.PI * 2;
+    L.parts.push({ kind: 'spark', x: l.cx + Math.cos(a) * (l.r + 11), y: l.cy + Math.sin(a) * (l.r + 11), vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, t: 34 });
+  }
+}
 function updateLoop() {
   const p = P, lp = p.loop;
   lp.speed = Math.max(5.5, lp.speed - 0.3 * Math.sin(lp.th));
   lp.th += lp.speed / lp.L.r;
   const l = lp.L;
+  l.lit = lp.th;                                  // 走ったところまで輪が光る
   if (lp.th >= Math.PI * 2) {
     p.loop = null; p.rot = 0;
-    p.x = l.cx - p.w / 2 + 1; p.y = l.cy + l.r - p.h; p.vx = lp.speed; p.vy = 0; p.onGround = true;
+    p.x = l.cx - p.w / 2 + 1; p.y = l.cy + l.r - p.h; p.vy = 0; p.onGround = true;
+    // 一回転のごほうび: 加速して飛び出し、しばらく敵を倒せる (スーパーダッシュと同じ状態) + 得点
+    p.vx = Math.min(14, lp.speed + 3); p.boost = 70; p.dash = Math.max(p.dash || 0, 60);
+    loopReward(l, lp.entry);
     return;
   }
   const fx = l.cx + l.r * Math.sin(lp.th), fy = l.cy + l.r * Math.cos(lp.th);
@@ -881,7 +907,7 @@ function updatePlayer() {
     const cx = p.x + p.w / 2;
     for (const l of L.loops) {
       if (prevCx < l.cx && cx >= l.cx && Math.abs(p.y + p.h - (l.cy + l.r)) < 6) {
-        p.loop = { L: l, th: 0, speed: p.vx }; p.jumped = false; sfx.whoosh();
+        p.loop = { L: l, th: 0, speed: p.vx, entry: p.vx }; p.jumped = false; sfx.whoosh();
         updateLoop(); return;
       }
     }
@@ -1015,6 +1041,8 @@ function updateParts() {
   for (const m of [L.bumps, L.springs]) for (const [k, v] of m) { if (v <= 1) m.delete(k); else m.set(k, v - 1); }
   if (L.banner && --L.banner.t <= 0) L.banner = null;
   if (L.cpBanner && --L.cpBanner.t <= 0) L.cpBanner = null;
+  if (L.loopBanner && --L.loopBanner.t <= 0) L.loopBanner = null;
+  for (const l of L.loops) { if (l.flash > 0) l.flash--; if (!P || P.loop?.L !== l) { if (l.lit > 0 && !(l.flash > 0)) l.lit = Math.max(0, l.lit - 0.25); } }
   // 流れ星 (夜のあいだだけ)
   if (L.shoot) { L.shoot.t--; if (L.shoot.t <= 0) L.shoot = null; }
   else if (dawnLevel() < 0.45 && Math.random() < 0.006) L.shoot = { x: 200 + Math.random() * (W - 200), y: 20 + Math.random() * 120, t: 40 };
@@ -1700,6 +1728,18 @@ function drawLoop(lp, camX) {
     ctx.fillStyle = `rgba(255,224,138,${al * 0.35})`; ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = `rgba(255,240,190,${al})`; ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
   }
+  // 走ったところが光る / 一回転すると輪全体がかがやく
+  if (lp.lit > 0 || lp.flash > 0) {
+    const fl = (lp.flash || 0) / 40;
+    ctx.save();
+    ctx.shadowColor = '#ffd36e'; ctx.shadowBlur = 18 + fl * 20;
+    ctx.strokeStyle = `rgba(255,236,150,${0.75 + fl * 0.25})`; ctx.lineWidth = 7 + fl * 6; ctx.lineCap = 'round';
+    ctx.beginPath();
+    if (fl > 0) ctx.arc(x, lp.cy, lp.r + 11, 0, Math.PI * 2);
+    else ctx.arc(x, lp.cy, lp.r + 11, Math.PI / 2, Math.PI / 2 - Math.min(lp.lit, Math.PI * 2), true);
+    ctx.stroke();
+    ctx.restore();
+  }
   ctx.fillStyle = '#6e4430'; rr(x - 42, lp.cy + lp.r - 5, 84, 9, 3); ctx.fill();
   ctx.fillStyle = PAL.stone; rr(x - 40, lp.cy + lp.r - 5, 80, 5, 3); ctx.fill();
 }
@@ -1879,6 +1919,20 @@ function drawHUD() {
   text(fmtTime(G.mode === 'goal' || G.mode === 'clear' ? G.final : G.clock), rx + rw - 16, 32, 19, '#ffffff', 'right');
   if (muted) text('♪ OFF', rx - 14, 32, 13, '#d8cce8', 'right');
 }
+function drawLoopBanner() {
+  const b = L.loopBanner; if (!b) return;
+  const a = clamp(Math.min(b.t / 20, (130 - b.t) / 8), 0, 1);
+  const pop = 1 + Math.max(0, (10 - (130 - b.t)) / 10) * 0.35;
+  const cx = W / 2, y = (L.cpBanner || L.banner) ? 252 : 128;
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(cx, y); ctx.scale(pop, pop);
+  const g = ctx.createLinearGradient(0, -34, 0, 34);
+  g.addColorStop(0, b.perfect ? 'rgba(255,214,90,0.95)' : 'rgba(255,190,110,0.92)'); g.addColorStop(1, b.perfect ? 'rgba(230,140,30,0.95)' : 'rgba(200,110,60,0.92)');
+  ctx.fillStyle = g; rr(-200, -34, 400, 68, 34); ctx.fill();
+  ctx.strokeStyle = '#fff6d8'; ctx.lineWidth = 3; ctx.stroke();
+  text(b.title + (b.chain > 1 ? '  ×' + b.chain : ''), 0, -9, 28, '#ffffff', 'center', '#7a3e10');
+  text('+' + b.pts + '　スピードアップ！', 0, 19, 16, '#fff6e0', 'center', '#7a3e10');
+  ctx.restore();
+}
 function drawCheckpointBanner() {
   const b = L.cpBanner; if (!b) return;
   const a = clamp(Math.min(b.t / 25, (170 - b.t) / 10), 0, 1);
@@ -2027,7 +2081,7 @@ function render() {
     text(G.best ? `ベストタイム ${fmtTime(G.best)}　ハイスコア ${G.high}${G.bestRank ? '　最高ランク ' + G.bestRank : ''}` : 'はやく、たくさん集めてゴール！ タイムとスコアでランクが決まる', cx, 456, 16, '#bfe8ff', 'center');
   } else {
     drawHUD();
-    if (G.mode !== 'ready') { drawBanner(); drawCheckpointBanner(); }
+    if (G.mode !== 'ready') { drawBanner(); drawCheckpointBanner(); drawLoopBanner(); }
     if (G.mode === 'play' && !G.paused) drawPauseButton();
   }
   if (G.mode === 'ready') {
