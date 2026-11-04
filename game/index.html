@@ -2309,7 +2309,7 @@ function render() {
   }
   if (G.mode === 'clear') {
     panel(cx - 300, 60, 600, 420);
-    if (G.char === 'croc') text('夜明けだ！ こんな朝にはやっぱりドーナッツだね', cx, 98, 24, '#ffc61a', 'center');
+    if (G.char === 'croc') text('夜明けだ！ こんな朝はドーナッツにかぎるね', cx, 98, 22, '#ffc61a', 'center');
     else text('夜明けだ！ 今日はどんな日になるかな？', cx, 98, 30, '#ffc61a', 'center');
     drawHero(cx - 190, 300 - Math.abs(Math.sin(G.frame * 0.1)) * 10, { scale: 1.4, face: 1, walk: 0, happy: true, glow: true });
     const R0 = G.result || { tr: 'D', sr: 'D', total: 'D' };
