@@ -48,38 +48,71 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       L.prog = progressOf(P.x);
       L.zone = lastIndexWhere(ZONES, z => P.x >= z.x * T);   // ゾーン看板は出さない (字幕を使う)
     }
+    const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+    const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+    const ease = (f, f0, len) => clamp((f - f0) / len, 0, 1);
+    // 字幕: 大きく傾いた状態からポンと飛び込んでくる (1 行ずつ時間差)
     function caption(str, f, f0, f1) {
-      const a = clamp(Math.min((f - f0) / 8, (f1 - f) / 8), 0, 1);
-      if (a <= 0) return;
-      ctx.save(); ctx.globalAlpha = a;
-      const slide = (1 - Math.min(1, (f - f0) / 10)) * 30;
-      const lines = str.split('\n');
-      lines.forEach((ln, i) => text(ln, 540 + slide, GY + GH + 110 + i * 78, 64, '#ffffff', 'center', '#2a1640'));
-      ctx.restore();
+      if (f < f0 || f > f1) return;
+      const out = clamp((f1 - f) / 6, 0, 1);
+      str.split('\n').forEach((ln, i) => {
+        const t = ease(f, f0 + i * 5, 12); if (t <= 0) return;
+        const e = easeOutBack(t);
+        const sc = (1 + (1 - e) * 1.4) * (1 + (1 - out) * 0.25);
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, t * 2) * out;
+        ctx.translate(540, GY + GH + 110 + i * 82); ctx.rotate((1 - t) * (i % 2 ? 9 : -9) * Math.PI / 180); ctx.scale(sc, sc);
+        text(ln, 0, 0, 66, '#ffffff', 'center', '#2a1640');
+        ctx.restore();
+      });
     }
     function fade(f, f0, f1, len = 6, color = '0,0,0') {
       const a = Math.max(0, 1 - (f - f0) / len, 1 - (f1 - f) / len);
       if (a > 0) { ctx.fillStyle = `rgba(${color},${clamp(a, 0, 1)})`; ctx.fillRect(0, 0, W, H); }
     }
     function endCard(f) {
-      const k = clamp((f - S.end) / 14, 0, 1);
-      ctx.save(); ctx.globalAlpha = k;
-      ctx.fillStyle = 'rgba(12,6,32,0.55)'; ctx.fillRect(0, 0, 1080, 1920);
-      ctx.save(); ctx.translate(0, 470); ctx.scale(2.6, 2.6); drawAnniversary(540 / 2.6); drawTitleSparkles(540 / 2.6); ctx.restore();
-      const pop = 1 + (1 - k) * 0.25;
-      ctx.save(); ctx.translate(540, 760); ctx.scale(pop, pop);
-      text('てるしのくん', 0, -70, 128, '#ffc61a', 'center', '#2a1640');
-      text('RUN', 0, 70, 150, '#ffc61a', 'center', '#2a1640');
-      ctx.restore();
+      const t = f - S.end;
+      ctx.fillStyle = `rgba(12,6,32,${0.55 * ease(f, S.end, 10)})`; ctx.fillRect(0, 0, 1080, 1920);
+      // 札: 上から落ちてくる
+      let k = ease(f, S.end, 12), e = easeOutBack(k);
+      ctx.save(); ctx.globalAlpha = Math.min(1, k * 2); ctx.translate(0, 470 - (1 - e) * 500); ctx.scale(2.6, 2.6); drawAnniversary(540 / 2.6); drawTitleSparkles(540 / 2.6); ctx.restore();
+      // ロゴ: 大きく回転しながら着地
+      k = ease(f, S.end + 5, 14); e = easeOutBack(k);
+      if (k > 0) {
+        ctx.save(); ctx.globalAlpha = Math.min(1, k * 2); ctx.translate(540, 760); ctx.rotate((1 - k) * -14 * Math.PI / 180);
+        const sc = (1 + (1 - e) * 2) * (1 + Math.sin(t * 0.18) * 0.015); ctx.scale(sc, sc);
+        text('てるしのくん', 0, -70, 128, '#ffc61a', 'center', '#2a1640');
+        text('RUN', 0, 70, 150, '#ffc61a', 'center', '#2a1640');
+        ctx.restore();
+      }
+      k = ease(f, S.end + 14, 10);
+      ctx.save(); ctx.globalAlpha = k; ctx.translate(0, (1 - k) * 30);
       text('真夜中から、夜明けまで', 540, 930, 46, '#ffe6d0', 'center');
       text('駆けぬけろ！', 540, 992, 46, '#ffe6d0', 'center');
-      drawHero(330, 1300 - Math.abs(Math.sin(f * 0.25)) * 20, { scale: 3, face: 1, walk: 0, happy: true, glow: true });
-      drawHero(750, 1300 - Math.abs(Math.sin(f * 0.25 + 1.4)) * 20, { scale: 3, face: -1, walk: 0, happy: true, glow: true });
-      const g = ctx.createLinearGradient(0, 1360, 0, 1470);
-      g.addColorStop(0, 'rgba(255,214,120,0.97)'); g.addColorStop(1, 'rgba(230,150,60,0.97)');
-      ctx.fillStyle = g; rr(140, 1360, 800, 110, 55); ctx.fill();
-      ctx.strokeStyle = '#fff6e0'; ctx.lineWidth = 5; ctx.stroke();
-      text('スマホ・PCで 今すぐプレイ！', 540, 1416, 52, '#2a1640', 'center', 'rgba(255,255,255,0.6)');
+      ctx.restore();
+      // てるしのくん 2 人: 左右からくるっと回って飛び込む
+      k = ease(f, S.end + 16, 14); e = easeOutBack(k);
+      for (const [side, ph] of [[-1, 0], [1, 1.4]]) {
+        if (k <= 0) break;
+        const x = 540 + side * 210 + side * (1 - e) * 700, y = 1300 - Math.abs(Math.sin(t * 0.25 + ph)) * 20 * k;
+        ctx.save(); ctx.globalAlpha = Math.min(1, k * 2); ctx.translate(x, y); ctx.rotate((1 - k) * side * 2 * Math.PI);
+        drawHero(0, 0, { scale: 3, face: -side, walk: 0, happy: true, glow: true });
+        ctx.restore();
+      }
+      // 今すぐプレイ: ポンと出て、ゆっくり脈打つ
+      k = ease(f, S.end + 26, 10); e = easeOutBack(k);
+      if (k > 0) {
+        const sc = e * (1 + Math.sin(t * 0.3) * 0.035 * k);
+        ctx.save(); ctx.translate(540, 1415); ctx.scale(sc, sc);
+        const g = ctx.createLinearGradient(0, -55, 0, 55);
+        g.addColorStop(0, 'rgba(255,214,120,0.97)'); g.addColorStop(1, 'rgba(230,150,60,0.97)');
+        ctx.fillStyle = g; rr(-400, -55, 800, 110, 55); ctx.fill();
+        ctx.strokeStyle = '#fff6e0'; ctx.lineWidth = 5; ctx.stroke();
+        text('スマホ・PCで 今すぐプレイ！', 0, 1, 52, '#2a1640', 'center', 'rgba(255,255,255,0.6)');
+        ctx.restore();
+      }
+      k = ease(f, S.end + 32, 10);
+      ctx.save(); ctx.globalAlpha = k;
       text('shirobuncho-bit.github.io', 540, 1530, 36, '#cfd8ff', 'center');
       text('/my-first-project/game/', 540, 1578, 36, '#cfd8ff', 'center');
       ctx.restore();
@@ -102,7 +135,6 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       ctx = __V.gameCtx;
       if (f < S.s2) render();
       else { drawWorld(); drawLoopBanner(); }
-      for (const s2 of [S.s2, S.s3, S.s4, S.s5]) if (Math.abs(f - s2) < 5) { ctx.fillStyle = `rgba(0,0,0,${1 - Math.abs(f - s2) / 5})`; ctx.fillRect(0, 0, W, H); }
       // 縦長の画面に組み立てる
       const vc = __V.vctx; ctx = vc;
       const d = G.mode === 'title' ? 0 : dawnLevel();
@@ -114,21 +146,53 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       bg.addColorStop(0, rgba(keyed(SKY_KEYS, d, 1), 0.65)); bg.addColorStop(0.5, 'rgba(10,6,28,0.15)'); bg.addColorStop(1, rgba(keyed(SKY_KEYS, d, 1), 0.75));
       vc.fillStyle = bg; vc.fillRect(0, 0, 1080, 1920);
       if (f < S.end) {
-        // 上: 30 周年の札とロゴ
-        if (f >= S.s2) {   // タイトル画面の場面では、ゲーム画面の中にロゴがあるので出さない
-          const ha = clamp((f - S.s2) / 10, 0, 1);
-          vc.globalAlpha = ha;
-          vc.save(); vc.translate(0, 196); vc.scale(2, 2); drawAnniversary(270); drawTitleSparkles(270); vc.restore();
-          text('てるしのくんRUN', 540, 420, 84, '#ffc61a', 'center', '#2a1640');
-          vc.globalAlpha = 1;
+        // 上: 30 周年の札とロゴ (2 場面目でポンと登場、あとはゆっくり呼吸)
+        if (f >= S.s2) {
+          const k = ease(f, S.s2, 12), e = easeOutBack(k);
+          vc.save(); vc.globalAlpha = Math.min(1, k * 2);
+          vc.save(); vc.translate(540, 0); vc.scale(e, e); vc.translate(-540, 0); vc.translate(0, 196); vc.scale(2, 2); drawAnniversary(270); drawTitleSparkles(270); vc.restore();
+          const br = 1 + Math.sin(f * 0.12) * 0.02;
+          vc.translate(540, 420); vc.scale(e * br, e * br);
+          text('てるしのくんRUN', 0, 0, 84, '#ffc61a', 'center', '#2a1640');
+          vc.restore();
         }
-        // まん中: ゲーム画面 (角を丸めて、光るふち)
+        // まん中: ゲーム画面。場面ごとにズーム・回転・揺れでカメラワーク
+        const cam = __V.cam || (__V.cam = { z: 1, punch: 0, pdir: 1, banner: null, dash: false });
+        const scenes = [S.title, S.s2, S.s3, S.s4, S.s5];
+        const s0 = scenes.filter(x => f >= x).pop(), lt = f - s0;
+        const inPlay = G.mode !== 'title' && P;
+        const hx = inPlay ? (P.loop ? P.feetX : P.x + P.w / 2) - L.camX : W / 2;
+        const hy = inPlay ? (P.loop ? P.feetY : P.y + P.h) - 40 : H / 2;
+        let tz = 1, rot = 0, cs = 1, shake = 0;
+        if (f < S.s2) { const k = ease(f, 0, 20); cs = 0.45 + 0.55 * easeOutBack(k); rot = (1 - k) * -14; }
+        else if (f < S.s3) tz = 1.12 + 0.18 * (lt / (S.s3 - S.s2));
+        else if (f < S.s4) { if (P.charging) { tz = 1.2 + 0.55 * P.charge; shake = 7 * P.charge; } else tz = 1.05; }
+        else if (f < S.s5) { tz = 1.15; if (P.loop) rot = Math.sin(P.loop.th) * 6; }
+        else { const k = easeOutCubic(ease(f, S.s5, 50)); tz = 1 + 0.75 * k; rot = 2.5 * k; }
+        if (lt === 0) { cam.z = tz; cam.punch = 0; cam.dash = false; }
+        if (inPlay && L.loopBanner && L.loopBanner !== cam.banner) { cam.banner = L.loopBanner; cam.punch = 1; cam.pdir = -cam.pdir; }
+        if (inPlay && f >= S.s3 && f < S.s4 && P.dash > 0 && !cam.dash) { cam.dash = true; cam.punch = 1.3; cam.pdir = -1; }
+        cam.z += (tz - cam.z) * 0.2;
+        cam.punch *= 0.85;
+        const z = Math.max(1, cam.z + cam.punch * 0.3);
+        rot += cam.punch * 5 * cam.pdir;
+        shake += cam.punch * 14;
+        // 場面の頭はくるっと回って飛び込む
+        if (f >= S.s2 && lt < 10) { const e = easeOutCubic(lt / 10); rot += (1 - e) * (scenes.indexOf(s0) % 2 ? -24 : 24); cs *= 1.3 - 0.3 * e; }
+        const sx0 = Math.sin(f * 12.9898) * shake, sy0 = Math.cos(f * 78.233) * shake;
+        // ズームの切り出し範囲 (主人公の近くを大きく)
+        const fw = cv.width / z, fh = cv.height / z, foc = clamp((z - 1) / 0.25, 0, 1);
+        const fcx = clamp(lerp(cv.width / 2, hx * 2, foc), fw / 2, cv.width - fw / 2);
+        const fcy = clamp(lerp(cv.height / 2, hy * 2, foc), fh / 2, cv.height - fh / 2);
         vc.save();
-        vc.shadowColor = 'rgba(255,200,100,0.55)'; vc.shadowBlur = 40;
-        rr(20, GY, 1040, GH, 28); vc.fillStyle = '#000'; vc.fill();
+        vc.translate(540 + sx0, GY + GH / 2 + sy0); vc.rotate(rot * Math.PI / 180); vc.scale(cs, cs);
+        vc.save(); vc.shadowColor = 'rgba(255,200,100,0.6)'; vc.shadowBlur = 44; rr(-520, -GH / 2, 1040, GH, 28); vc.fillStyle = '#000'; vc.fill(); vc.restore();
+        vc.save(); rr(-520, -GH / 2, 1040, GH, 28); vc.clip();
+        vc.drawImage(cv, fcx - fw / 2, fcy - fh / 2, fw, fh, -520, -GH / 2, 1040, GH);
+        if (f >= S.s2 && lt < 4) { vc.fillStyle = `rgba(255,255,255,${0.7 * (1 - lt / 4)})`; vc.fillRect(-520, -GH / 2, 1040, GH); }
         vc.restore();
-        vc.save(); rr(20, GY, 1040, GH, 28); vc.clip(); vc.drawImage(cv, 20, GY, 1040, GH); vc.restore();
-        vc.strokeStyle = 'rgba(255,214,140,0.85)'; vc.lineWidth = 4; rr(20, GY, 1040, GH, 28); vc.stroke();
+        vc.strokeStyle = 'rgba(255,214,140,0.9)'; vc.lineWidth = 5; rr(-520, -GH / 2, 1040, GH, 28); vc.stroke();
+        vc.restore();
         // 下: 字幕
         if (f >= S.s2) {
           if (f < S.s3) caption('真夜中の丘を、\n駆けぬけろ！', f, S.s2 + 6, S.s3 - 4);
@@ -136,8 +200,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
           else if (f < S.s5) caption('ループを決めて、\nハイスコア！', f, S.s4 + 4, S.s5 - 4);
           else caption('めざすは、日の出。', f, S.s5 + 10, S.end - 4);
         } else {
-          const a2 = clamp((f - 20) / 12, 0, 1);
-          vc.globalAlpha = a2; text('30周年記念ゲーム、登場！', 540, GY + GH + 130, 60, '#ffffff', 'center', '#2a1640'); vc.globalAlpha = 1;
+          caption('30周年記念ゲーム、\n登場！', f, 16, S.s2 - 3);
         }
       } else endCard(f);
       // はじめは黒から、締めの前に白く光る、最後は暗転
@@ -182,6 +245,10 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       seen.add(key);
       __tOff = e.t; try { sfx[e.k](...e.a); } catch (err) { }
     }
+    // 動画の演出に合わせた音: 場面の切り替えで「シュッ」、締めの画面で要素が出るたびに「ポン」
+    for (const f0 of [__S.s2, __S.s3, __S.s4, __S.s5]) { __tOff = f0 / FPS - 0.06; noise({ d: 0.28, v: 0.14, f: 500, f2: 5000, q: 1.2 }); }
+    __tOff = __S.end / FPS - 0.1; noise({ d: 0.6, v: 0.12, f: 300, f2: 6000, q: 0.8, rev: 0.4 });
+    [[12, 70], [19, 74], [30, 77], [36, 79]].forEach(([df, m]) => { __tOff = (__S.end + df) / FPS; voice({ f: midi(m), f2: midi(m + 12), d: 0.06, r: 0.12, type: 'sine', v: 0.14 }); bell(m + 12, 0.02, 0.03, 0.3); });
     // ためダッシュの「ウィーン」
     let c0 = -1;
     __charge.forEach((c, i) => {
