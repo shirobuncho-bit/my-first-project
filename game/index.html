@@ -708,23 +708,29 @@ function moveBody(b, onHitCeil) {
   const wasGround = b.onGround;
   b.hitWall = 0;
   b.x += b.vx;
-  const top = Math.floor(b.y / T), bot = Math.floor((b.y + b.h - 1 - STEP) / T);
+  // 地面を走っているときは、速さのぶんだけ高い段差 (坂の上の角) も乗りこえる。1 マスの壁は今までどおり止まる
+  const stepH = STEP + (wasGround ? Math.min(Math.abs(b.vx), 14) : 0);
+  const top = Math.floor(b.y / T), bot = Math.floor((b.y + b.h - 1 - stepH) / T);
+  // 上り坂の下の地面は「壁」ではない (速く走ると坂の途中の地面に頭からぶつかって止まっていた)
+  const UP_R = c => c === '/' || c === 'a' || c === 'b', UP_L = c => c === '\\' || c === 'c' || c === 'd';
+  const underRamp = (tx, ty, dir) => wasGround && tile(tx, ty) === '#' && (dir > 0 ? UP_R(tile(tx, ty - 1)) : UP_L(tile(tx, ty - 1)));
   if (b.vx > 0) {
     const tx = Math.floor((b.x + b.w - 1) / T);
-    for (let ty = top; ty <= bot; ty++) if (solidAt(tx, ty)) { b.x = tx * T - b.w; b.vx = 0; b.hitWall = 1; break; }
+    for (let ty = top; ty <= bot; ty++) if (solidAt(tx, ty) && !underRamp(tx, ty, 1)) { b.x = tx * T - b.w; b.vx = 0; b.hitWall = 1; break; }
   } else if (b.vx < 0) {
     const tx = Math.floor(b.x / T);
-    for (let ty = top; ty <= bot; ty++) if (solidAt(tx, ty)) { b.x = (tx + 1) * T; b.vx = 0; b.hitWall = -1; break; }
+    for (let ty = top; ty <= bot; ty++) if (solidAt(tx, ty) && !underRamp(tx, ty, -1)) { b.x = (tx + 1) * T; b.vx = 0; b.hitWall = -1; break; }
   }
   b.y += b.vy; b.onGround = false;
   if (b.vy >= 0) {
     const fy = b.y + b.h;
     const snap = wasGround ? 6 + Math.abs(b.vx) * 1.1 : 0;
+    const up = STEP + (wasGround ? Math.abs(b.vx) * 1.1 : 0);   // 速いほど坂を高く登れる
     const xs = [b.x + 3, b.x + b.w / 2, b.x + b.w - 3];
-    const center = surfaceAt(xs[1], fy - STEP, fy + snap + 1);
+    const center = surfaceAt(xs[1], fy - up, fy + snap + 1);
     let best = center && center.slope ? center : null;
     if (!best) for (const sx of xs) {
-      const s = surfaceAt(sx, fy - STEP, fy + snap + 1);
+      const s = surfaceAt(sx, fy - up, fy + snap + 1);
       if (s && (!best || s.y < best.y)) best = s;
     }
     if (best && (best.y <= fy || wasGround)) {
