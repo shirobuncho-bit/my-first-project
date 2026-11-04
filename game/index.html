@@ -1154,7 +1154,7 @@ function updateGoal() {
 
 function update() {
   G.frame++;
-  if (pressed.mute) setMuted(!muted);
+  if (pressed.mute || G.uiAct === 'sound') { initAudio(); setMuted(!muted); if (!muted) sfx.ready(); }
   warmChunks();
   switch (G.mode) {
     case 'title':
@@ -2045,7 +2045,6 @@ function drawHUD() {
   text(z.time, rx + 18, 24, 12, '#ffd2a1');
   text(z.name, rx + 18, 41, 13, '#fff1e0');
   text(fmtTime(G.mode === 'goal' || G.mode === 'clear' ? G.final : G.clock), rx + rw - 16, 32, 19, '#ffffff', 'right');
-  if (muted) text('♪ OFF', rx - 14, 32, 13, '#d8cce8', 'right');
 }
 function drawLoopBanner() {
   const b = L.loopBanner; if (!b) return;
@@ -2229,6 +2228,25 @@ function uiButton(label, x, y, w, h, act, selected, color = '#ffc61a') {
   text(label, x + w / 2, y + h / 2 + 1, 20, selected ? '#2a1640' : '#fff6e6', 'center', selected ? 'rgba(255,255,255,0.6)' : '#1c0f30');
 }
 // 一時停止ボタン (右上)
+// 音のオン・オフボタン (一時停止ボタンの左)
+function drawSoundButton() {
+  const s = 44, x = W - 16 - s - 56, y = 62, cx = x + s / 2, cy = y + s / 2;
+  UI.push({ x: x - 6, y: y - 6, w: s + 12, h: s + 12, act: 'sound' });
+  ctx.fillStyle = 'rgba(30,18,58,0.55)'; ctx.beginPath(); ctx.arc(cx, cy, s / 2, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,220,170,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+  // スピーカー
+  ctx.fillStyle = muted ? '#b9aed0' : '#fff6e6';
+  ctx.beginPath(); ctx.moveTo(cx - 12, cy - 5); ctx.lineTo(cx - 6, cy - 5); ctx.lineTo(cx + 1, cy - 11); ctx.lineTo(cx + 1, cy + 11); ctx.lineTo(cx - 6, cy + 5); ctx.lineTo(cx - 12, cy + 5); ctx.closePath(); ctx.fill();
+  ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  if (muted) {   // ×
+    ctx.strokeStyle = '#ff8a8a';
+    ctx.beginPath(); ctx.moveTo(cx + 5, cy - 6); ctx.lineTo(cx + 13, cy + 6); ctx.moveTo(cx + 13, cy - 6); ctx.lineTo(cx + 5, cy + 6); ctx.stroke();
+  } else {       // 音の波
+    ctx.strokeStyle = '#fff6e6';
+    ctx.beginPath(); ctx.arc(cx + 2, cy, 6, -0.9, 0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx + 2, cy, 11, -0.9, 0.9); ctx.stroke();
+  }
+}
 function drawPauseButton() {
   const s = 44, x = W - 16 - s, y = 62;
   UI.push({ x: x - 6, y: y - 6, w: s + 12, h: s + 12, act: 'pause' });
@@ -2287,7 +2305,7 @@ function render() {
   } else {
     drawHUD();
     if (G.mode !== 'ready') { drawBanner(); drawCheckpointBanner(); drawLoopBanner(); }
-    if (G.mode === 'play' && !G.paused) drawPauseButton();
+    if (G.mode === 'play' && !G.paused) { drawPauseButton(); drawSoundButton(); }
   }
   if (G.mode === 'ready') {
     const n = G.readyT > 90 ? 0 : Math.ceil(G.readyT / 30);
