@@ -104,10 +104,9 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
         else caption('めざすは、日の出。', f, S.s5 + 10, S.end - 4);
       } else endCard(f);
       // 場面のつなぎ目は短く暗転
-      fade(f, 0, N_FRAMES, 10);
+      if (f < 10) { ctx.fillStyle = `rgba(0,0,0,${1 - f / 10})`; ctx.fillRect(0, 0, W, H); }   // はじめだけ黒から
       for (const s of [S.s2, S.s3, S.s4, S.s5]) if (Math.abs(f - s) < 5) { ctx.fillStyle = `rgba(0,0,0,${1 - Math.abs(f - s) / 5})`; ctx.fillRect(0, 0, W, H); }
       if (f >= S.end - 5 && f < S.end + 6) { ctx.fillStyle = `rgba(255,250,235,${1 - Math.abs(f - S.end) / 6})`; ctx.fillRect(0, 0, W, H); }
-      if (f >= N_FRAMES - 10) { ctx.fillStyle = `rgba(0,0,0,${(f - (N_FRAMES - 10)) / 10})`; ctx.fillRect(0, 0, W, H); }
       return cv.toDataURL('image/jpeg', 0.93);
     };
     window.N_FRAMES = 450;
@@ -151,7 +150,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       if (!c && c0 >= 0) { __tOff = c0 / FPS; voice({ f: 110, f2: 440, d: (i - c0) / FPS, r: 0.05, type: 'sawtooth', v: 0.035, cut: 500, cut2: 4000, q: 6, vib: 20, vibF: 16 }); c0 = -1; }
     });
     __tOff = 0;
-    master.gain.setValueAtTime(0.9, 0); master.gain.setValueAtTime(0.9, SEC - 1.2); master.gain.linearRampToValueAtTime(0.0001, SEC - 0.05);
+    master.gain.setValueAtTime(0.9, 0); master.gain.setValueAtTime(0.9, SEC - 0.15); master.gain.linearRampToValueAtTime(0.0001, SEC - 0.01);
     const buf = await off.startRendering();
     // 16bit WAV に
     const n = buf.length, ch = 2, data = new DataView(new ArrayBuffer(44 + n * ch * 2));

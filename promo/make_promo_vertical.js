@@ -200,13 +200,12 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
           else if (f < S.s5) caption('ループを決めて、\nハイスコア！', f, S.s4 + 4, S.s5 - 4);
           else caption('めざすは、日の出。', f, S.s5 + 10, S.end - 4);
         } else {
-          caption('30周年記念ゲーム、\n登場！', f, 16, S.s2 - 3);
+          caption('30周年記念？ゲーム、\n登場！', f, 16, S.s2 - 3);
         }
       } else endCard(f);
       // はじめは黒から、締めの前に白く光る、最後は暗転
       if (f < 10) { vc.fillStyle = `rgba(0,0,0,${1 - f / 10})`; vc.fillRect(0, 0, 1080, 1920); }
       if (f >= S.end - 5 && f < S.end + 6) { vc.fillStyle = `rgba(255,250,235,${1 - Math.abs(f - S.end) / 6})`; vc.fillRect(0, 0, 1080, 1920); }
-      if (f >= N_FRAMES - 10) { vc.fillStyle = `rgba(0,0,0,${(f - (N_FRAMES - 10)) / 10})`; vc.fillRect(0, 0, 1080, 1920); }
       ctx = __V.gameCtx;
       return __V.VC.toDataURL('image/jpeg', 0.93);
 
@@ -256,7 +255,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       if (!c && c0 >= 0) { __tOff = c0 / FPS; voice({ f: 110, f2: 440, d: (i - c0) / FPS, r: 0.05, type: 'sawtooth', v: 0.035, cut: 500, cut2: 4000, q: 6, vib: 20, vibF: 16 }); c0 = -1; }
     });
     __tOff = 0;
-    master.gain.setValueAtTime(0.9, 0); master.gain.setValueAtTime(0.9, SEC - 1.2); master.gain.linearRampToValueAtTime(0.0001, SEC - 0.05);
+    master.gain.setValueAtTime(0.9, 0); master.gain.setValueAtTime(0.9, SEC - 0.15); master.gain.linearRampToValueAtTime(0.0001, SEC - 0.01);
     const buf = await off.startRendering();
     // 16bit WAV に
     const n = buf.length, ch = 2, data = new DataView(new ArrayBuffer(44 + n * ch * 2));
