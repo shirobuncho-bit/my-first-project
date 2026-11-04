@@ -1,7 +1,8 @@
 """ワニのイラスト (assets/croc-original.webp) からプレイアブルキャラ用のパーツ画像を作り、
 index.html の // @croc-begin ～ // @croc-end の間に data URI として埋め込む。
 
-- てるしのくんと同じ頭身になるよう、頭だけ HEAD_SCALE 倍に大きくして首でつなぐ
+- 切れ目が見えないよう、体 (腕・しっぽこみ) はひとかたまりのまま使い、足の先だけを別パーツにして歩かせる
+- 頭は表情の差し替え用に別パーツ (HEAD_SCALE=1 なのでイラストのバランスのまま)
 - 元の絵は左向きなので、ゲームでは左右反転して使う (meta.flip)
 
 使い方:  python3 game/tools/make_croc.py [--preview 出力フォルダ]
@@ -23,7 +24,7 @@ SRC = ROOT / 'assets' / 'croc-original.webp'
 SMILE = ROOT / 'assets' / 'croc-smile.webp'   # 笑顔のイラスト (にっこり目と口の色をここから取る)
 HTML = ROOT / 'index.html'
 OUT_SCALE = 0.3
-HEAD_SCALE = 1.18             # 頭を少しだけ大きく (イラストの体のバランスを保ちつつ、てるしのくんに近い頭身に)
+HEAD_SCALE = 1.0  #             # 頭を少しだけ大きく (イラストの体のバランスを保ちつつ、てるしのくんに近い頭身に)
 NECK = (440, 380)             # 頭を大きくするときの基準点 (首のまん中)
 FEET_CX = 470                 # 足もとの中心 x
 GREEN = (82, 126, 66)
@@ -40,14 +41,17 @@ head = alpha & (((XX < 600) & (YY < 384)) | ((XX >= 600) & (YY < 346)))
 # 腕: 体の線より外側のふくらみ
 armL_core = alpha & (YY > 418) & (YY < 655) & (XX < 326 - (YY - 430) * 0.13)
 armR_core = alpha & (YY > 430) & (YY < 655) & (XX > 597 + (YY - 445) * 0.24) & (XX < 712)
-# 足: お腹の下
-legs = alpha & (YY >= 712) & ~((XX > 630))
-legL_core = legs & (XX < 470)
-legR_core = legs & (XX >= 470)
+# 足: お腹の線より下 (左右の足が分かれるところ) から先だけ
+legs = alpha & (YY >= 748) & ~((XX > 630))
+def biggest(m):   # 小さなゴミ (はなれた点) を落とす
+    l, n = nd.label(m)
+    return l == (np.argmax(nd.sum(m, l, range(1, n + 1))) + 1) if n else m
+legL_core = biggest(legs & (XX < 470))
+legR_core = biggest(legs & (XX >= 470))
 # しっぽ: 体の右うしろ
 tail_core = alpha & (((XX > 712) & (YY > 455) & (YY < 712)) | ((XX > 630) & (YY >= 700)))
-torso = alpha & ~head & ~armL_core & ~armR_core & ~legL_core & ~legR_core & ~tail_core
-torso |= alpha & (YY >= 330) & (YY < 400) & ~armL_core & ~armR_core   # 首まわりは頭の下に重ねて隙間を防ぐ
+torso = alpha & ~head & ~legL_core & ~legR_core   # 腕・しっぽは体といっしょ (切れ目を作らない)
+torso |= alpha & (YY >= 330) & (YY < 400)   # 首まわりは頭の下に重ねて隙間を防ぐ
 # 肩口の線は体に残す (腕を振っても肩の輪郭が欠けないように)
 for sx, sy in [(300, 448), (606, 452)]:
     torso |= alpha & (((XX - sx) ** 2 + (YY - sy) ** 2) < 30 ** 2)
@@ -58,8 +62,8 @@ def grow(core, cond, it):
 # 腕は体の手前に描くので、のりしろは体の線がかくれる程度だけ
 armL = grow(armL_core, YY < 660, 6)
 armR = grow(armR_core, (YY < 660) & (XX < 712), 6)
-legL = grow(legL_core, (XX < 470) & (YY > 660), 40)
-legR = grow(legR_core, (XX >= 470) & (XX <= 630) & (YY > 660), 40)
+legL = grow(legL_core, (XX < 470) & (YY > 700), 40)
+legR = grow(legR_core, (XX >= 470) & (XX <= 630) & (YY > 700), 40)
 tail = grow(tail_core, YY > 440, 34)
 
 # ---- 顔の差分 ----
@@ -128,10 +132,6 @@ under_m = nd.binary_erosion(nd.binary_fill_holes(torso | armL_core | armR_core |
 under_rgb = np.zeros_like(rgb); under_rgb[:] = GREEN
 
 parts = {
-    'under': (rgba_of(under_rgb, under_m), 1.0),
-    'tail': (rgba_of(rgb, tail), 1.0),
-    'armL': (rgba_of(rgb, armL), 1.0),
-    'armR': (rgba_of(rgb, armR), 1.0),
     'legL': (rgba_of(rgb, legL), 1.0),
     'legR': (rgba_of(rgb, legR), 1.0),
     'torso': (rgba_of(rgb, torso), 1.0),
@@ -143,7 +143,8 @@ parts = {
 # 頭を大きくしたあとの、頭のてっぺん (= 全体の高さ)
 head_top = np.where(head.any(1))[0].min()
 top_y = NECK[1] - (NECK[1] - head_top) * HEAD_SCALE
-meta = {'height': round((feet_y - top_y) * OUT_SCALE, 2), 'flip': True, 'armsFront': True, 'armSwing': 0.16, 'parts': {},
+meta = {'height': round((feet_y - top_y) * OUT_SCALE, 2), 'flip': True, 'legLift': 0, 'legShift': 0, 'waddle': 0.07,   # 足は動かさず、体をよちよちゆらして歩く (切れ目が出ないように)
+        'parts': {},
         'pivots': {
             # 腕は肩、しっぽは付け根を軸に回す (足もと中心からの座標)
             'armL': [round((300 - FEET_CX) * OUT_SCALE, 1), round((455 - feet_y) * OUT_SCALE, 1)],
