@@ -2077,6 +2077,55 @@ function drawWorld() {
   }
 }
 
+// ---------- タイトル: 30 周年の表示とキラキラ ----------
+function sparkle(x, y, r, a) {   // 4 本の光のすじが出る小さな星
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(x, y);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 1.6);
+  g.addColorStop(0, 'rgba(255,248,210,0.9)'); g.addColorStop(1, 'rgba(255,220,120,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r * 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fffbe8';
+  ctx.beginPath(); ctx.moveTo(0, -r * 2.2); ctx.lineTo(r * 0.28, 0); ctx.lineTo(0, r * 2.2); ctx.lineTo(-r * 0.28, 0); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-r * 2.2, 0); ctx.lineTo(0, r * 0.28); ctx.lineTo(r * 2.2, 0); ctx.lineTo(0, -r * 0.28); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawAnniversary(cx) {
+  const y = 31, w = 330, h = 38;
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,200,90,0.55)'; ctx.shadowBlur = 14;
+  const g = ctx.createLinearGradient(0, y - h / 2, 0, y + h / 2);
+  g.addColorStop(0, 'rgba(58,38,96,0.92)'); g.addColorStop(1, 'rgba(24,14,48,0.92)');
+  ctx.fillStyle = g; rr(cx - w / 2, y - h / 2, w, h, h / 2); ctx.fill();
+  ctx.restore();
+  // ふちを光がゆっくり一周する
+  const t = (G.frame % 300) / 300;
+  const bg = ctx.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
+  bg.addColorStop(0, '#c9962e'); bg.addColorStop(clamp(t - 0.08, 0, 1), '#e8b84a');
+  bg.addColorStop(t, '#fff6cf'); bg.addColorStop(clamp(t + 0.08, 0, 1), '#e8b84a'); bg.addColorStop(1, '#c9962e');
+  ctx.strokeStyle = bg; ctx.lineWidth = 2.5; rr(cx - w / 2, y - h / 2, w, h, h / 2); ctx.stroke();
+  // 文字: 「30」だけ少し大きく
+  ctx.font = '900 17px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+  const a = 'てるしのワークセンター ', c = ' 周年';
+  const wa = ctx.measureText(a).width, wc = ctx.measureText(c).width;
+  ctx.font = '900 25px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+  const wb = ctx.measureText('30').width;
+  let x = cx - (wa + wb + wc) / 2;
+  text(a, x, y + 1, 17, '#ffe7a8', 'left', '#2a1640'); x += wa;
+  text('30', x, y, 25, '#ffd24a', 'left', '#2a1640'); x += wb;
+  text(c, x, y + 1, 17, '#ffe7a8', 'left', '#2a1640');
+}
+// タイトルのまわりで、ときどき小さな星がまたたく
+// 文字の上には出さない (バッジ・タイトル・サブタイトルの文字の範囲をよける)
+const TITLE_SPARKS = Array.from({ length: 60 }, (_, i) => ({ dx: (hash(i * 3.7) - 0.5) * 600, y: 8 + hash(i * 5.1) * 180, ph: hash(i * 9.3) * 6.28, sp: 0.03 + hash(i * 1.7) * 0.03, r: 1.6 + hash(i * 2.3) * 1.8 }))
+  .filter(p => !((Math.abs(p.dx) < 158 && p.y > 14 && p.y < 48) || (Math.abs(p.dx) < 232 && p.y > 92 && p.y < 150) || (Math.abs(p.dx) < 190 && p.y > 160 && p.y < 186)))
+  .slice(0, 16);
+function drawTitleSparkles(cx) {
+  for (const s of TITLE_SPARKS) {
+    const v = Math.sin(G.frame * s.sp + s.ph);
+    if (v <= 0.35) continue;
+    const k = (v - 0.35) / 0.65;
+    sparkle(cx + s.dx, s.y, s.r * (0.6 + k * 0.6), k * 0.85);
+  }
+}
 function uiButton(label, x, y, w, h, act, selected, color = '#ffc61a') {
   UI.push({ x, y, w, h, act });
   const g = ctx.createLinearGradient(0, y, 0, y + h);
@@ -2103,7 +2152,9 @@ function render() {
   const backMsg = IS_TOUCH ? 'タップでタイトルへ' : 'Enter でタイトルへ';
   if (G.mode === 'title') {
     panel(cx - 320, 60, 640, 420);
+    drawAnniversary(cx);
     text('てるしのくんRUN', cx, 120, 54, '#ffc61a', 'center');
+    drawTitleSparkles(cx);
     text('〜 真夜中から夜明けまで駆けぬけろ！ 〜', cx, 172, 20, '#ffe6d0', 'center');
     const bob = Math.sin(G.frame * 0.08) * 4;
     drawHero(cx, 345 + bob, { scale: 1.6, face: 1, walk: 0 });
