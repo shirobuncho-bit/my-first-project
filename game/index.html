@@ -94,24 +94,36 @@ const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s
 // ---------- 画面サイズ調整 ----------
 const lightCv = document.createElement('canvas');
 const lctx = lightCv.getContext('2d');
+function viewSize() {
+  const v = window.visualViewport;
+  return v ? [Math.round(v.width), Math.round(v.height)] : [innerWidth, innerHeight];
+}
+// 縦持ち: コントローラーをゲーム画面のすぐ下に置く。
+// 画面上部の余白 (ノッチ・ステータスバー) はあとから変わることがあるので、実際の位置を測り直す
+let ctrlTop = -1;
+function placeCtrl() {
+  if (!document.body.classList.contains('portrait')) return;
+  const bottom = Math.round(cv.getBoundingClientRect().bottom + 8);
+  if (bottom !== ctrlTop) { ctrlTop = bottom; document.documentElement.style.setProperty('--ctrl-top', bottom + 'px'); }
+}
 function fit() {
-  const vw = innerWidth, vh = innerHeight;
+  const [vw, vh] = viewSize();
   const portrait = IS_TOUCH && vh > vw;
   document.body.classList.toggle('portrait', portrait);
   const nw = portrait ? 640 : Math.round(clamp(H * vw / vh, 960, 1280) / 2) * 2;   // 縦持ちは画面を寄せて大きく見せる
   if (nw !== W || cv.width !== nw) { W = nw; cv.width = W; }
-  lightCv.width = W; lightCv.height = H;
-  const s = portrait ? vw / W : Math.min(vw / W, vh / H);
-  cv.style.width = W * s + 'px';
-  cv.style.height = H * s + 'px';
-  if (portrait) {
-    const top = cv.getBoundingClientRect().top;
-    document.documentElement.style.setProperty('--ctrl-top', Math.round(top + H * s + 8) + 'px');
-  }
+  if (lightCv.width !== W) { lightCv.width = W; lightCv.height = H; }
+  // 縦持ちでもコントローラー (約 230px) が入るよう、ゲーム画面の高さを抑える
+  const s = portrait ? Math.min(vw / W, Math.max(120, vh - 60 - 230) / H) : Math.min(vw / W, vh / H);
+  cv.style.width = Math.floor(W * s) + 'px';
+  cv.style.height = Math.floor(H * s) + 'px';
+  placeCtrl();
 }
 addEventListener('resize', fit);
 addEventListener('orientationchange', () => setTimeout(fit, 200));
-fit(); requestAnimationFrame(fit);
+if (window.visualViewport) visualViewport.addEventListener('resize', fit);
+if (window.ResizeObserver) new ResizeObserver(placeCtrl).observe(document.body);
+fit(); requestAnimationFrame(fit); setTimeout(fit, 500);
 
 const fsBtn = document.getElementById('fs');
 if (document.fullscreenEnabled || document.webkitFullscreenEnabled) document.body.classList.add('fs-ok');
@@ -2080,6 +2092,7 @@ function loop(now) {
   accT += Math.min(100, now - last); last = now;
   while (accT >= 1000 / 60) { update(); accT -= 1000 / 60; }
   render();
+  if (G.frame % 30 === 0) placeCtrl();
   requestAnimationFrame(loop);
 }
 loadLevel();
