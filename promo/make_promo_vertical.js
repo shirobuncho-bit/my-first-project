@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const OUT = __dirname;
-const FPS = 30, SEC = 15, N = FPS * SEC;
+const FPS = 30, SEC = 16.5, N = Math.round(FPS * SEC);
 
 (async () => {
   const b = await chromium.launch();
@@ -33,7 +33,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
     window.__t = 0; window.__log = []; window.__orig = {};
     for (const k of Object.keys(sfx)) { __orig[k] = sfx[k]; sfx[k] = (...a) => __log.push({ t: __t, k, a }); }
     window.__dawn = []; window.__charge = [];
-    const S = { title: 0, s2: 75, s3: 150, s4: 225, s5: 332, end: 384 };
+    const S = { title: 0, s2: 75, s3: 150, sel: 225, s4: 270, s5: 377, end: 429 };   // sel: キャラえらび (ワニに切りかえ)
     window.__S = S;
     function place(tx, vx, extra = {}) {
       for (const k in keys) keys[k] = false;
@@ -52,10 +52,10 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
     const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
     const ease = (f, f0, len) => clamp((f - f0) / len, 0, 1);
     // ===== ポップな演出の部品 =====
-    const POP = ['#ffb347', '#ff7eb6', '#5ec8ff', '#7ee08a', '#ffd84a', '#ffb347'];      // 場面ごとの背景色
-    const POPD = ['#d96a00', '#d6336c', '#1b78c2', '#2b9a48', '#d99a00', '#d96a00'];     // 字幕リボンの色
-    const sceneOf = f => f < S.s2 ? 0 : f < S.s3 ? 1 : f < S.s4 ? 2 : f < S.s5 ? 3 : f < S.end ? 4 : 5;
-    const cutOf = i => [S.title, S.s2, S.s3, S.s4, S.s5, S.end][i];
+    const POP = ['#ffb347', '#ff7eb6', '#5ec8ff', '#6fd6b0', '#7ee08a', '#ffd84a', '#ffb347'];      // 場面ごとの背景色
+    const POPD = ['#d96a00', '#d6336c', '#1b78c2', '#1f9a78', '#2b9a48', '#d99a00', '#d96a00'];     // 字幕リボンの色
+    const sceneOf = f => f < S.s2 ? 0 : f < S.s3 ? 1 : f < S.sel ? 2 : f < S.s4 ? 3 : f < S.s5 ? 4 : f < S.end ? 5 : 6;
+    const cutOf = i => [S.title, S.s2, S.s3, S.sel, S.s4, S.s5, S.end][i];
     function popBG(vc, f, i) {   // 回るサンバースト + 水玉
       vc.fillStyle = POP[i]; vc.fillRect(0, 0, 1080, 1920);
       vc.save(); vc.translate(540, 1000); vc.rotate(f * 0.006);
@@ -90,7 +90,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
     }
     // 場面の切り替えで中央からはじける紙ふぶき
     function burst(vc, f) {
-      for (const cf of [S.s2, S.s3, S.s4, S.s5, S.end]) {
+      for (const cf of [S.s2, S.s3, S.sel, S.s4, S.s5, S.end]) {
         const t = f - cf; if (t < 0 || t > 34) continue;
         for (let k = 0; k < 34; k++) {
           const a = hash(k * 1.7 + cf) * Math.PI * 2, sp = 18 + hash(k * 2.9 + cf) * 22;
@@ -158,9 +158,9 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       // タイトルのイラスト: 下からぴょんと飛び出して弾む
       k = ease(f, S.end + 14, 14); e = easeOutBack(k);
       if (k > 0 && TITLE_ART.naturalWidth) {
-        const aw = 980, ah = aw * TITLE_ART.naturalHeight / TITLE_ART.naturalWidth;
+        const aw = 800, ah = aw * TITLE_ART.naturalHeight / TITLE_ART.naturalWidth;
         const hop = Math.abs(Math.sin(t * 0.22)) * 18 * k;
-        ctx.save(); ctx.translate(540, 1100 + (1 - e) * 600 - hop); ctx.rotate(Math.sin(t * 0.15) * 0.025);
+        ctx.save(); ctx.translate(455, 1110 + (1 - e) * 600 - hop); ctx.rotate(Math.sin(t * 0.15) * 0.025);
         const gl = ctx.createRadialGradient(0, 0, 40, 0, 0, aw * 0.6);
         gl.addColorStop(0, 'rgba(255,255,255,0.75)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = gl; ctx.fillRect(-aw * 0.7, -ah, aw * 1.4, ah * 2);
@@ -184,7 +184,14 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       text('shirobuncho-bit.github.io', 540, 1562, 36, '#5a1f00', 'center', 'rgba(255,255,255,0)');
       text('/my-first-project/game/', 540, 1606, 36, '#5a1f00', 'center', 'rgba(255,255,255,0)');
       ctx.restore();
-      sticker(ctx, 880, 1000, '30th!', ease(f, S.end + 20, 10), -0.2);
+      // ワニも横からぴょんと登場
+      k = ease(f, S.end + 20, 14); e = easeOutBack(k);
+      if (k > 0) {
+        ctx.save(); ctx.globalAlpha = Math.min(1, k * 2);
+        drawHero(930 + (1 - e) * 300, 1318 - Math.abs(Math.sin(t * 0.22 + 1.3)) * 16 * k, { who: 'croc', still: true, scale: 3.2, face: -1, happy: true });
+        ctx.restore();
+      }
+      sticker(ctx, 900, 700, '30th!', ease(f, S.end + 26, 10), -0.2);
     }
     // 1 コマ分進めて描く
     window.__frame = f => {
@@ -193,7 +200,9 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       if (f === S.s2) { place(37, 6, { score: 1260, drops: 12, clock: 9 * 60 }); keys.right = true; }
       if (f === S.s3) { place(110, 0, { score: 6840, drops: 31, clock: 27 * 60 }); keys.run = true; keys.right = false; }
       if (f === S.s3 + 26) { keys.run = false; keys.right = true; }
-      if (f === S.s4) { place(398, 13, { score: 14120, drops: 58, clock: 41 * 60, cpi: 2 }); keys.right = true; }
+      if (f === S.sel) { for (const k in keys) keys[k] = false; G.char = 'sun'; G.mode = 'select'; G.sel = 0; }
+      if (f === S.sel + 16) pressed.right = true;      // カーソルがワニへ
+      if (f === S.s4) { G.char = 'croc'; place(398, 13, { score: 14120, drops: 58, clock: 41 * 60, cpi: 2 }); keys.right = true; }
       if (f === S.s5) { place(503, 3, { score: 21980, drops: 77, clock: 52 * 60, cpi: 3 }); keys.right = true; }
       // ゲームを進める (日の出は少し早回し)
       const steps = f >= S.end ? 1 : f >= S.s5 ? 4 : 2;
@@ -202,7 +211,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       __charge.push(!!(P && P.charging));
       // ゲーム画面を描く (2 倍解像度)
       ctx = __V.gameCtx;
-      if (f < S.s2) render();
+      if (f < S.s2 || (f >= S.sel && f < S.s4)) render();
       else { drawWorld(); drawLoopBanner(); }
       // 縦長の画面に組み立てる
       const vc = __V.vctx; ctx = vc;
@@ -227,20 +236,21 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
         }
         // まん中: ゲーム画面。場面ごとにズーム・回転・揺れでカメラワーク
         const cam = __V.cam || (__V.cam = { z: 1, punch: 0, pdir: 1, banner: null, dash: false });
-        const scenes = [S.title, S.s2, S.s3, S.s4, S.s5];
+        const scenes = [S.title, S.s2, S.s3, S.sel, S.s4, S.s5];
         const s0 = scenes.filter(x => f >= x).pop(), lt = f - s0;
-        const inPlay = G.mode !== 'title' && P;
+        const inPlay = G.mode !== 'title' && G.mode !== 'select' && P;
         const hx = inPlay ? (P.loop ? P.feetX : P.x + P.w / 2) - L.camX : W / 2;
         const hy = inPlay ? (P.loop ? P.feetY : P.y + P.h) - 40 : H / 2;
         let tz = 1, rot = 0, cs = 1, shake = 0;
         if (f < S.s2) { const k = ease(f, 0, 20); cs = 0.45 + 0.55 * easeOutBack(k); rot = (1 - k) * -14; }
         else if (f < S.s3) tz = 1.12 + 0.18 * (lt / (S.s3 - S.s2));
-        else if (f < S.s4) { if (P.charging) { tz = 1.2 + 0.55 * P.charge; shake = 7 * P.charge; } else tz = 1.05; }
+        else if (f < S.sel) { if (P.charging) { tz = 1.2 + 0.55 * P.charge; shake = 7 * P.charge; } else tz = 1.05; }
+        else if (f < S.s4) { tz = 1; }
         else if (f < S.s5) { tz = 1.15; if (P.loop) rot = Math.sin(P.loop.th) * 6; }
         else { const k = easeOutCubic(ease(f, S.s5, 50)); tz = 1 + 0.75 * k; rot = 2.5 * k; }
         if (lt === 0) { cam.z = tz; cam.punch = 0; cam.dash = false; }
         if (inPlay && L.loopBanner && L.loopBanner !== cam.banner) { cam.banner = L.loopBanner; cam.punch = 1; cam.pdir = -cam.pdir; }
-        if (inPlay && f >= S.s3 && f < S.s4 && P.dash > 0 && !cam.dash) { cam.dash = true; cam.punch = 1.3; cam.pdir = -1; }
+        if (inPlay && f >= S.s3 && f < S.sel && P.dash > 0 && !cam.dash) { cam.dash = true; cam.punch = 1.3; cam.pdir = -1; }
         cam.z += (tz - cam.z) * 0.2;
         cam.punch *= 0.85;
         const z = Math.max(1, cam.z + cam.punch * 0.3);
@@ -265,9 +275,10 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
         // 下: 字幕
         if (f >= S.s2) {
           if (f < S.s3) caption('真夜中の丘を、\n駆けぬけろ！', f, S.s2 + 6, S.s3 - 4);
-          else if (f < S.s4) caption('ためて、はなして、\nスーパーダッシュ！', f, S.s3 + 4, S.s4 - 4);
+          else if (f < S.sel) caption('ためて、はなして、\nスーパーダッシュ！', f, S.s3 + 4, S.sel - 4);
+          else if (f < S.s4) caption('ワニでも\nあそべる！', f, S.sel + 4, S.s4 - 3);
           else if (f < S.s5) caption('ループを決めて、\nハイスコア！', f, S.s4 + 4, S.s5 - 4);
-          else caption('めざすは、日の出。', f, S.s5 + 10, S.end - 4);
+          else caption('ゴールは…\nドーナツ！？', f, S.s5 + 8, S.end - 4);
         } else {
           caption('30周年記念？ゲーム、\n登場！', f, 16, S.s2 - 3);
           sticker(vc, 900, GY + 40, 'NEW!', ease(f, 26, 10), 0.25);
@@ -281,7 +292,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       return __V.VC.toDataURL('image/jpeg', 0.93);
 
     };
-    window.N_FRAMES = 450;
+    window.N_FRAMES = 495;
   }, { FPS });
 
   for (let f = 0; f < N; f++) {
@@ -316,7 +327,7 @@ const FPS = 30, SEC = 15, N = FPS * SEC;
       __tOff = e.t; try { sfx[e.k](...e.a); } catch (err) { }
     }
     // 動画の演出に合わせた音: 場面の切り替えで「シュッ」、締めの画面で要素が出るたびに「ポン」
-    for (const f0 of [__S.s2, __S.s3, __S.s4, __S.s5]) { __tOff = f0 / FPS - 0.06; noise({ d: 0.28, v: 0.14, f: 500, f2: 5000, q: 1.2 }); __tOff = f0 / FPS; voice({ f: 520, f2: 1560, d: 0.08, r: 0.1, type: 'sine', v: 0.16 }); [84, 88, 91].forEach((m, i) => bell(m, i * 0.04, 0.03, 0.35)); }
+    for (const f0 of [__S.s2, __S.s3, __S.sel, __S.s4, __S.s5]) { __tOff = f0 / FPS - 0.06; noise({ d: 0.28, v: 0.14, f: 500, f2: 5000, q: 1.2 }); __tOff = f0 / FPS; voice({ f: 520, f2: 1560, d: 0.08, r: 0.1, type: 'sine', v: 0.16 }); [84, 88, 91].forEach((m, i) => bell(m, i * 0.04, 0.03, 0.35)); }
     __tOff = 26 / FPS; voice({ f: 400, f2: 1400, d: 0.07, r: 0.1, type: 'sine', v: 0.16 });
     __tOff = __S.end / FPS - 0.1; noise({ d: 0.6, v: 0.12, f: 300, f2: 6000, q: 0.8, rev: 0.4 });
     [[12, 70], [19, 74], [30, 77], [36, 79]].forEach(([df, m]) => { __tOff = (__S.end + df) / FPS; voice({ f: midi(m), f2: midi(m + 12), d: 0.06, r: 0.12, type: 'sine', v: 0.14 }); bell(m + 12, 0.02, 0.03, 0.3); });
