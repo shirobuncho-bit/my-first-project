@@ -845,7 +845,7 @@ function updateLoop() {
   p.feetX = fx; p.feetY = fy; p.rot = -lp.th;
   const bx = fx - Math.sin(lp.th) * p.h / 2, by = fy - Math.cos(lp.th) * p.h / 2;
   p.x = bx - p.w / 2; p.y = by - p.h / 2;
-  p.walk += lp.speed * 0.1;
+  p.walk += Math.min(lp.speed * 0.1, WALK_MAX);
   collectDrops(p);
 }
 
@@ -937,7 +937,7 @@ function updatePlayer() {
     if (!wasGround && fallV > 6) dust(p.x + p.w / 2, p.y + p.h);
     p.combo = 0; p.jumped = false; p.spring = false;
   }
-  p.walk += p.onGround ? Math.abs(p.vx) * 0.1 : 0;
+  p.walk += p.onGround ? Math.min(Math.abs(p.vx) * 0.1, WALK_MAX) : 0;
   if (p.onGround && !p.vx) p.walk = 0;
   p.rot = p.onGround ? p.ang * 0.6 : 0;
 
@@ -1114,7 +1114,7 @@ function updateGoal() {
     p.face = d >= 0 ? 1 : -1;
     p.vx = Math.abs(d) < 60 ? clamp(d, -2.2, 2.2) : p.vx * 0.94 + Math.sign(d) * 0.1;
     p.vy = Math.min(p.vy + 0.72, 12);
-    moveBody(p); p.walk += Math.abs(p.vx) * 0.1; p.rot = 0;
+    moveBody(p); p.walk += Math.min(Math.abs(p.vx) * 0.1, WALK_MAX); p.rot = 0;
     if (Math.abs(d) < 1.5 && p.onGround) { p.x = cx - p.w / 2; p.vx = 0; p.walk = 0; p.face = 1; L.goalPhase = 1; L.goalT = 50; }
   } else if (L.goalPhase === 1) {
     L.beam = 1 - L.goalT / 50;
@@ -1233,13 +1233,15 @@ const rgba = (c, a) => `rgba(${c.join(',')},${a})`;
 const HERO_IMG = {};
 for (const k in HERO_SRC) { const im = new Image(); im.src = HERO_SRC[k]; HERO_IMG[k] = im; }
 const heroReady = () => Object.values(HERO_IMG).every(i => i.complete && i.naturalWidth > 0);
+// 走りの手足: 振りの速さに上限 (1 秒に約 4 歩)。速く走っても手足がはっきり動いて見えるように
+const WALK_MAX = 0.42;
 function drawHero(x, y, o) {
   if (!heroReady()) return;
   const k = (o.scale || 1) * HERO_H / HERO_META.height;
   const px = HERO_META.height / HERO_H;
   const M = HERO_META.parts, PV = HERO_META.pivots;
   const sw = o.air ? 0 : Math.sin(o.walk || 0);
-  const bob = o.air ? 0 : -Math.abs(sw) * 1.4 * px;
+  const bob = o.air ? 0 : -Math.abs(sw) * 2.6 * px;
   ctx.save();
   ctx.translate(x, y);
   if (o.rot) ctx.rotate(o.rot);
@@ -1250,15 +1252,15 @@ function drawHero(x, y, o) {
   } else { ctx.shadowColor = 'rgba(255,170,40,0.55)'; ctx.shadowBlur = 10; }
   const part = (n, dx = 0, dy = 0) => ctx.drawImage(HERO_IMG[n], M[n][0] + dx, M[n][1] + dy);
   for (const [n, s] of [['armL', 1], ['armR', -1]]) {
-    const a = o.air ? 0.38 : sw * 0.14 * s;
+    const a = o.air ? 0.38 : sw * 0.32 * s;
     const [pvx, pvy] = PV[n];
     ctx.save(); ctx.translate(pvx, pvy + bob); ctx.rotate(a * s);
     ctx.drawImage(HERO_IMG[n], M[n][0] - pvx, M[n][1] - pvy);
     ctx.restore();
   }
   for (const [n, i] of [['legL', -1], ['legR', 1]]) {
-    const lift = o.air ? (i < 0 ? 4 : 0.5) : Math.max(0, sw * i) * 3.5;
-    part(n, (o.air ? 0 : sw * i * 0.9) * px, -lift * px);
+    const lift = o.air ? (i < 0 ? 4 : 0.5) : Math.max(0, sw * i) * 6;
+    part(n, (o.air ? 0 : sw * i * 2) * px, -lift * px);
   }
   part('torso', 0, bob);
   ctx.drawImage(HERO_IMG[o.dead ? 'headDead' : o.happy ? 'headHappy' : 'head'], M.head[0], M.head[1] + bob);
