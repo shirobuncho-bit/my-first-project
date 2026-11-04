@@ -1156,7 +1156,7 @@ function update() {
       L.camX = (Math.sin(G.frame / 600) * 0.5 + 0.5) * 1400;
       L.prog = 1; L.sunrise = 1;   // タイトルは日の出後の明るい朝の空
       updatePlats(); updateParts();
-      if (G.uiAct === 'start' || pressed.tap || pressed.start || pressed.jump) { initAudio(); G.mode = 'select'; G.sel = Math.max(0, CHAR_KEYS.indexOf(G.char)); sfx.ready(); }
+      if (G.uiAct === 'start' || pressed.tap || pressed.start || pressed.jump) { initAudio(); G.mode = 'select'; G.sel = 0; sfx.ready(); }   // えらぶ画面はいつも てるしのくん から
       break;
     case 'select':   // キャラえらび
       if (!L) loadLevel();
@@ -1168,7 +1168,6 @@ function update() {
       if (pressed.pause) { G.mode = 'title'; break; }
       if (G.uiAct === 'go' || pressed.start || pressed.jump) {
         G.char = CHAR_KEYS[G.sel];
-        try { localStorage.setItem('terushino-run-char', G.char); } catch (e) { }
         newGame();
       }
       break;
@@ -1264,7 +1263,7 @@ const CHARS = {
   croc: { name: 'ワニ', M: CROC_META, IMG: CROC_IMG, still: { M: CROC_STILL_META, IMG: CROC_STILL_IMG } },
 };
 const CHAR_KEYS = Object.keys(CHARS);
-G.char = (() => { try { const c = localStorage.getItem('terushino-run-char'); return CHARS[c] ? c : 'sun'; } catch (e) { return 'sun'; } })();
+G.char = 'sun';
 const heroReady = IMG => Object.values(IMG).every(i => i.complete && i.naturalWidth > 0);
 // 走りの手足: 振りの速さに上限 (1 秒に約 4 歩)。速く走っても手足がはっきり動いて見えるように
 const WALK_MAX = 0.42;
