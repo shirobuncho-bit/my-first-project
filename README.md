@@ -17,5 +17,6 @@
 | `game/index.html` | ゲーム本体（主人公の画像も埋め込み済み） |
 | `game/assets/hero-original.png` | 主人公の元イラスト |
 | `game/assets/croc-original.webp` / `croc-smile.webp` | えらべるキャラ「ワニ」の元イラスト（ふつう / 笑顔。笑顔の目と口の色を笑顔版から取る） |
-| `game/tools/make_croc.py` | ワニのイラストからパーツ画像を作って `index.html` に埋め込むスクリプト（イラストのバランスのまま。体は腕・しっぽこみでひとかたまりにして、よちよち揺らして歩かせる） |
+| `game/tools/make_croc.py` | ワニのイラストを頭・体・腕・足・しっぽに切り分けて `index.html` に埋め込むスクリプト（ゲーム中の動くワニ） |
+| `game/tools/make_croc_still.py` | キャラえらび画面用の、切れ目の出ないひとかたまりのワニを作るスクリプト |
 | `game/tools/make_sprites.py` | 元イラストから主人公のパーツ画像を作って `index.html` に埋め込むスクリプト |
