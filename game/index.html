@@ -1146,7 +1146,7 @@ function update() {
     case 'title':
       if (!L) loadLevel();
       L.camX = (Math.sin(G.frame / 600) * 0.5 + 0.5) * 1400;
-      L.prog = 0;
+      L.prog = 1; L.sunrise = 1;   // タイトルは日の出後の明るい朝の空
       updatePlats(); updateParts();
       if (G.uiAct === 'start' || pressed.tap || pressed.start || pressed.jump) { initAudio(); newGame(); }
       break;
@@ -2001,9 +2001,10 @@ function drawBanner() {
   text(b.time, cx, y + 30, 14, '#cfd8ff', 'center');
   ctx.globalAlpha = 1;
 }
-function panel(x, y, w, h) {
+function panel(x, y, w, h, light) {
   const g = ctx.createLinearGradient(0, y, 0, y + h);
-  g.addColorStop(0, 'rgba(36,22,72,0.82)'); g.addColorStop(1, 'rgba(14,8,34,0.82)');
+  if (light) { g.addColorStop(0, 'rgba(255,252,242,0.86)'); g.addColorStop(1, 'rgba(255,236,206,0.86)'); }
+  else { g.addColorStop(0, 'rgba(36,22,72,0.82)'); g.addColorStop(1, 'rgba(14,8,34,0.82)'); }
   ctx.fillStyle = g;
   rr(x, y, w, h, 22); ctx.fill();
   ctx.strokeStyle = 'rgba(255,200,120,0.85)'; ctx.lineWidth = 2.5; ctx.stroke();
@@ -2156,30 +2157,30 @@ function render() {
   const startMsg = IS_TOUCH ? 'タップでスタート' : 'Enter / スペース でスタート';
   const backMsg = IS_TOUCH ? 'タップでタイトルへ' : 'Enter でタイトルへ';
   if (G.mode === 'title') {
-    panel(cx - 320, 60, 640, 420);
+    panel(cx - 320, 60, 640, 420, true);
     drawAnniversary(cx);
     text('てるしのくんRUN', cx, 120, 54, '#ffc61a', 'center');
     drawTitleSparkles(cx);
-    text('〜 真夜中から夜明けまで駆けぬけろ！ 〜', cx, 172, 20, '#ffe6d0', 'center');
+    text('〜 真夜中から夜明けまで駆けぬけろ！ 〜', cx, 172, 20, '#8a4a1a', 'center', 'rgba(255,255,255,0.9)');
     // タイトルのイラスト (てるしのくんとゲーム機)
     if (TITLE_ART.complete && TITLE_ART.naturalWidth) {
       const ah = 166, aw = ah * TITLE_ART.naturalWidth / TITLE_ART.naturalHeight;
       const bob = Math.sin(G.frame * 0.06) * 2;
       // 夜空の背景から浮かび上がるよう、うしろにやわらかい光
       const gl = ctx.createRadialGradient(cx, 275, 10, cx, 275, aw * 0.62);
-      gl.addColorStop(0, 'rgba(255,214,120,0.30)'); gl.addColorStop(1, 'rgba(255,190,90,0)');
+      gl.addColorStop(0, 'rgba(255,236,170,0.55)'); gl.addColorStop(1, 'rgba(255,220,140,0)');
       ctx.fillStyle = gl; ctx.fillRect(cx - aw * 0.7, 180, aw * 1.4, ah + 20);
       ctx.drawImage(TITLE_ART, cx - aw / 2, 190 + bob, aw, ah);
     }
     uiButton('スタート', cx - 120, 362, 240, 46, 'start', G.frame % 60 < 42);
     if (IS_IOS && !STANDALONE) {
       // iPhone は Safari では全画面にできないので、ホーム画面への追加を案内
-      ctx.fillStyle = 'rgba(255,198,26,0.16)'; rr(cx - 300, 486, 600, 30, 15); ctx.fill();
-      text('全画面で遊ぶには：共有ボタン →「ホーム画面に追加」→ ホーム画面のアイコンから起動', cx, 501, 13, '#ffe6a8', 'center');
+      ctx.fillStyle = 'rgba(255,250,238,0.82)'; rr(cx - 300, 486, 600, 30, 15); ctx.fill();
+      text('全画面で遊ぶには：共有ボタン →「ホーム画面に追加」→ ホーム画面のアイコンから起動', cx, 501, 13, '#7a4a1a', 'center', 'rgba(255,255,255,0.9)');
     }
-    if (!IS_TOUCH) text('←→ 移動　Space/Z ジャンプ　Shift/X 長押しでためて、はなすとスーパーダッシュ　P/Esc 一時停止', cx, 430, 14, '#e3d4ff', 'center');
-    else text('◀▶ 移動　A ジャンプ　B 長押しでためて、はなすとスーパーダッシュ', cx, 430, 15, '#e3d4ff', 'center');
-    text(G.best ? `ベストタイム ${fmtTime(G.best)}　ハイスコア ${G.high}${G.bestRank ? '　最高ランク ' + G.bestRank : ''}` : 'はやく、たくさん集めてゴール！ タイムとスコアでランクが決まる', cx, 456, 16, '#bfe8ff', 'center');
+    if (!IS_TOUCH) text('←→ 移動　Space/Z ジャンプ　Shift/X 長押しでためて、はなすとスーパーダッシュ　P/Esc 一時停止', cx, 430, 14, '#5b3a78', 'center', 'rgba(255,255,255,0.9)');
+    else text('◀▶ 移動　A ジャンプ　B 長押しでためて、はなすとスーパーダッシュ', cx, 430, 15, '#5b3a78', 'center', 'rgba(255,255,255,0.9)');
+    text(G.best ? `ベストタイム ${fmtTime(G.best)}　ハイスコア ${G.high}${G.bestRank ? '　最高ランク ' + G.bestRank : ''}` : 'はやく、たくさん集めてゴール！ タイムとスコアでランクが決まる', cx, 456, 16, '#2f6f9a', 'center', 'rgba(255,255,255,0.9)');
   } else {
     drawHUD();
     if (G.mode !== 'ready') { drawBanner(); drawCheckpointBanner(); drawLoopBanner(); }
